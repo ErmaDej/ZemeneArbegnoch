@@ -51,6 +51,10 @@
 
 :root {
   color-scheme: dark;
+  /* System-first stacks keep builds and offline Telegram sessions independent of Google Fonts. */
+  --font-body: Inter, ui-sans-serif, system-ui, sans-serif;
+  --font-display: Cinzel, Georgia, ui-serif, serif;
+  --font-ethiopic: "Noto Sans Ethiopic", "Abyssinica SIL", sans-serif;
   /* Deep indigo highland-night base */
   --background: oklch(0.19 0.035 264);
   --foreground: oklch(0.94 0.02 85);
