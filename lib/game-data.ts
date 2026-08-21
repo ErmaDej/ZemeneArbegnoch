@@ -71,6 +71,8 @@ export interface ChapterDef {
   // events and the 1896 Battle of Adwa. All names, sequence, and context must be
   // verified by a historian before launch. Combat is intentionally abstract.
   historian: string
+  // Visual distinction for enemy type (abstract, stylized)
+  enemyColor: string // tailwind color class, e.g., "text-ember", "text-primary", etc.
 }
 
 export const CHAPTERS: ChapterDef[] = [
