@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react"
 import { AnimatePresence, motion } from "framer-motion"
 import { Shield, Swords, Flag, Sparkles, X, Eye, Users } from "lucide-react"
+import { audio } from "@/lib/audio"
+import { useParticleSystem } from "./particle-canvas"
 import { useGame } from "@/lib/game-context"
 import { t } from "@/lib/i18n"
 import { RESOURCE_META, fmt } from "@/lib/ui"
@@ -30,6 +32,8 @@ export function BattleView({ chapter, onClose }: { chapter: ChapterDef; onClose:
   const { winBattle, loseBattle } = game
   const playerPower = computePlayerPower(game.resources, game.completedChapters.length)
   const enemyPower = chapter.enemyPower
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const particles = useParticleSystem(canvasRef)
 
   const [phase, setPhase] = useState<Phase>("march")
   const [playerHp, setPlayerHp] = useState(100)
@@ -37,6 +41,7 @@ export function BattleView({ chapter, onClose }: { chapter: ChapterDef; onClose:
   const [won, setWon] = useState(false)
   const [shake, setShake] = useState(0)
   const [formation, setFormation] = useState<Formation | null>(null)
+  const [showClash, setShowClash] = useState(false)
   const settled = useRef(false)
 
   // A choice has a visible effect before the abstract battle begins.
@@ -50,7 +55,10 @@ export function BattleView({ chapter, onClose }: { chapter: ChapterDef; onClose:
     // Loser drops to ~0, winner keeps a residual proportional to margin.
     const winnerResidual = Math.max(12, Math.min(70, Math.abs(effectivePlayer - enemyPower) / total * 140))
 
-    const marchT = setTimeout(() => setPhase("clash"), 1400)
+    const marchT = setTimeout(() => {
+      setPhase("clash")
+      audio.play("whoosh", 0.15)
+    }, 1400)
 
     let ticks = 0
     const totalTicks = 42 // ~11s of clashing at 260ms
@@ -59,6 +67,18 @@ export function BattleView({ chapter, onClose }: { chapter: ChapterDef; onClose:
         ticks++
         const p = ticks / totalTicks
         setShake((s) => (s + 1) % 2)
+        if (ticks % 3 === 0) {
+          setShowClash(true)
+          setTimeout(() => setShowClash(false), 200)
+          audio.play("clash", 0.08)
+          particles.spawn({
+            x: 50,
+            y: 50,
+            count: 6,
+            type: "spark",
+            speed: 3,
+          })
+        }
         if (didWin) {
           setEnemyHp(Math.max(0, 100 - p * 100))
           setPlayerHp(Math.max(winnerResidual, 100 - p * (100 - winnerResidual)))
@@ -72,8 +92,8 @@ export function BattleView({ chapter, onClose }: { chapter: ChapterDef; onClose:
             settled.current = true
             setWon(didWin)
             setPhase("result")
-            if (didWin) winBattle(chapter.id, formation)
-            else loseBattle(chapter.id, formation)
+            if (didWin) { winBattle(chapter.id, formation); audio.play("victory", 0.3) }
+            else { loseBattle(chapter.id, formation); audio.play("defeat", 0.3) }
           }
         }
       }, 260)
@@ -93,7 +113,10 @@ export function BattleView({ chapter, onClose }: { chapter: ChapterDef; onClose:
       exit={{ opacity: 0 }}
       className="fixed inset-0 z-50 flex items-stretch justify-center bg-background/95 backdrop-blur"
     >
-      <div className="relative flex w-full max-w-md flex-col">
+       <div className="relative flex w-full max-w-md flex-col">
+        {/* Particle overlay */}
+        <canvas ref={canvasRef} className="pointer-events-none absolute inset-0 h-full w-full" />
+
         {/* Battlefield */}
         <div className="relative flex-1 overflow-hidden">
           <img src="/battle-bg.png" alt="" aria-hidden className="absolute inset-0 h-full w-full object-cover" />
@@ -125,11 +148,17 @@ export function BattleView({ chapter, onClose }: { chapter: ChapterDef; onClose:
               <div className="grid grid-cols-3 gap-2">
                 {FORMATIONS.map((item) => {
                   const Icon = item.icon
-                  return <button key={item.id} type="button" onClick={() => setFormation(item.id)} className="rounded-xl border border-primary/30 bg-background/75 px-2 py-3 text-left hover:border-primary hover:bg-primary/10">
+                  return <motion.button
+                    key={item.id}
+                    type="button"
+                    onClick={() => { setFormation(item.id); audio.play("clash", 0.12) }}
+                    whileTap={{ scale: 0.94 }}
+                    className="rounded-xl border border-primary/30 bg-background/75 px-2 py-3 text-left hover:border-primary hover:bg-primary/10"
+                  >
                     <Icon className="mb-1 size-4 text-victory" />
                     <span className="block text-xs font-bold text-foreground">{item.label}</span>
                     <span className="block text-[10px] text-muted-foreground">+{Math.round((item.bonus - 1) * 100)}% power</span>
-                  </button>
+                  </motion.button>
                 })}
               </div>
             </div>
@@ -158,6 +187,17 @@ export function BattleView({ chapter, onClose }: { chapter: ChapterDef; onClose:
                   className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
                 >
                   <Swords className="size-12 text-primary drop-shadow-[0_0_12px_var(--gold)]" />
+                </motion.div>
+              )}
+              {showClash && (
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.3 }}
+                  animate={{ opacity: [0, 0.6, 0], scale: [0.3, 1, 0.3] }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.2 }}
+                  className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
+                >
+                  <Sparkles className="size-10 text-amber-400 drop-shadow-[0_0_16px_rgba(245,158,30,0.7)]" />
                 </motion.div>
               )}
             </AnimatePresence>

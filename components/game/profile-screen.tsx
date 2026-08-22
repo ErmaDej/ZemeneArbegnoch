@@ -2,8 +2,9 @@
 
 import { useState } from "react"
 import { motion } from "framer-motion"
-import { Flag, Mountain, Wheat, Star, Copy, Check, Users2, Award, Swords, Trophy } from "lucide-react"
+import { Flag, Mountain, Wheat, Star, Copy, Check, Users2, Award, Swords, Trophy, Target } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
+import { audio } from "@/lib/audio"
 import { useGame } from "@/lib/game-context"
 import { t } from "@/lib/i18n"
 import { BADGES } from "@/lib/game-data"
@@ -27,14 +28,16 @@ export function ProfileScreen() {
     try {
       await navigator.clipboard.writeText(game.referralLink)
     } catch {}
+    audio.play("referralCopy", 0.2)
     setCopied(true)
     setTimeout(() => setCopied(false), 1800)
   }
 
-  const stats = [
+  const stats: { icon: LucideIcon; label: string; value: string; sub?: string }[] = [
     { icon: Swords, label: t(lang, "stat_chapters"), value: `${game.completedChapters.length}/8` },
-    { icon: Trophy, label: t(lang, "stat_battles"), value: game.battlesFought },
-    { icon: Star, label: t(lang, "stat_score"), value: game.score },
+    { icon: Trophy, label: t(lang, "stat_battles"), value: String(game.battlesFought) },
+    { icon: Star, label: t(lang, "stat_score"), value: String(game.score) },
+    { icon: Target, label: t(lang, "stat_accuracy"), value: game.sniperAccuracy > 0 ? `${game.sniperAccuracy}%` : "—", sub: `${game.sniperHits} ${t(lang, "enemies_eliminated")}` },
   ]
 
   return (
@@ -92,11 +95,12 @@ export function ProfileScreen() {
           {stats.map((s) => {
             const Icon = s.icon
             return (
-              <div key={s.label} className="rounded-xl border border-border bg-card/60 p-3 text-center">
-                <Icon className="mx-auto mb-1 size-4 text-primary" aria-hidden />
-                <div className="font-mono text-lg font-bold text-foreground">{s.value}</div>
-                <div className="text-[10px] leading-tight text-muted-foreground">{s.label}</div>
-              </div>
+             <div key={s.label} className="rounded-xl border border-border bg-card/60 p-3 text-center">
+                 <Icon className="mx-auto mb-1 size-4 text-primary" aria-hidden />
+                 <div className="font-mono text-lg font-bold text-foreground">{s.value}</div>
+                 <div className="text-[10px] leading-tight text-muted-foreground">{s.label}</div>
+                 {s.sub && <div className="text-[8px] leading-tight text-muted-foreground/60">{s.sub}</div>}
+               </div>
             )
           })}
         </div>

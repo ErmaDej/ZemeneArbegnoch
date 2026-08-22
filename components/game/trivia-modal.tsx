@@ -3,6 +3,7 @@
 import { useState } from "react"
 import { motion } from "framer-motion"
 import { ScrollText, Check, X, Sparkles } from "lucide-react"
+import { audio } from "@/lib/audio"
 import { useGame } from "@/lib/game-context"
 import { t } from "@/lib/i18n"
 import type { TriviaQuestion } from "@/lib/game-data"
@@ -15,10 +16,15 @@ export function TriviaModal({ question, onClose }: { question: TriviaQuestion; o
   const answered = picked !== null
   const correct = picked === question.correctIndex
 
-  function pick(i: number) {
+   function pick(i: number) {
     if (answered) return
     setPicked(i)
-    if (i === question.correctIndex) game.triviaReward(question.id)
+    if (i === question.correctIndex) {
+      game.triviaReward(question.id)
+      audio.play("triviaCorrect", 0.18)
+    } else {
+      audio.play("triviaWrong", 0.15)
+    }
   }
 
   return (

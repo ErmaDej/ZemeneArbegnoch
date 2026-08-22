@@ -2,6 +2,7 @@
 
 import { Tent, Swords, Trophy, User } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
+import { audio } from "@/lib/audio"
 import { useGame } from "@/lib/game-context"
 import { t, type TranslationKey } from "@/lib/i18n"
 
@@ -26,7 +27,7 @@ export function BottomNav({ active, onChange }: { active: Screen; onChange: (s: 
             <button
               key={tab.id}
               type="button"
-              onClick={() => onChange(tab.id)}
+              onClick={() => { onChange(tab.id); audio.play("tabSwitch", 0.1) }}
               className={`flex flex-col items-center gap-1 py-2.5 text-[11px] font-medium transition-colors ${
                 isActive ? "text-primary" : "text-muted-foreground hover:text-foreground"
               }`}

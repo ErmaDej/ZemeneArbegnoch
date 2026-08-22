@@ -3,6 +3,7 @@
 import { useState } from "react"
 import { AnimatePresence, motion } from "framer-motion"
 import { Tent, ChevronsUp } from "lucide-react"
+import { audio } from "@/lib/audio"
 import { useGame } from "@/lib/game-context"
 import { t } from "@/lib/i18n"
 import { UPGRADES, upgradeCost, type ResourceKey } from "@/lib/game-data"
@@ -24,6 +25,7 @@ export function CampScreen() {
 
   function handleGather(resource: ResourceKey) {
     game.gather(resource)
+    audio.play("gather", 0.12)
     const gain = resource === "provisions" ? 3 : resource === "fighters" ? 1 : 2
     const meta = RESOURCE_META[resource]
     const id = Date.now() + Math.random()
@@ -83,6 +85,8 @@ export function CampScreen() {
                   type="button"
                   onClick={() => handleGather(key)}
                   whileTap={{ scale: 0.92 }}
+                  animate={{ y: [0, -2, 0] }}
+                  transition={{ duration: 2, repeat: Infinity, ease: "easeInOut", delay: key === "fighters" ? 0 : key === "provisions" ? 0.3 : 0.6 }}
                   className="flex flex-col items-center gap-1.5 rounded-xl border border-border bg-background/60 py-3 transition-all hover:border-primary/50 hover:bg-background"
                 >
                   <Icon className={`size-6 ${meta.color}`} aria-hidden />
@@ -136,7 +140,7 @@ export function CampScreen() {
                   type="button"
                   whileTap={{ scale: 0.94 }}
                   disabled={!afford}
-                  onClick={() => game.buyUpgrade(u.id)}
+                  onClick={() => { game.buyUpgrade(u.id); audio.play("upgrade", 0.15) }}
                   className={`flex shrink-0 flex-col items-center gap-0.5 rounded-lg px-3 py-2 text-xs font-semibold transition-colors ${
                     afford
                       ? "bg-primary text-primary-foreground hover:bg-primary/85"

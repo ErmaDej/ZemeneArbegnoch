@@ -58,6 +58,8 @@ export function upgradeCost(def: UpgradeDef, level: number): number {
   return Math.floor(def.baseCost * Math.pow(1.55, level))
 }
 
+export type BattleType = "formation" | "sniper" | "mixed"
+
 export interface ChapterDef {
   id: number
   titleEn: string
@@ -73,6 +75,7 @@ export interface ChapterDef {
   historian: string
   // Visual distinction for enemy type (abstract, stylized)
   enemyColor?: string // tailwind color class, e.g., "text-ember", "text-primary", etc.
+  battleType: BattleType
 }
 
 export const CHAPTERS: ChapterDef[] = [
@@ -86,6 +89,7 @@ export const CHAPTERS: ChapterDef[] = [
     reward: { provisions: 60, morale: 30 },
     scoreReward: 100,
     historian: "NEEDS HISTORIAN REVIEW: general mobilization framing, no specific claims.",
+    battleType: "formation",
   },
   {
     id: 2,
@@ -97,6 +101,7 @@ export const CHAPTERS: ChapterDef[] = [
     reward: { fighters: 25, morale: 40 },
     scoreReward: 140,
     historian: "NEEDS HISTORIAN REVIEW: terrain-based defense is illustrative, not a specific engagement.",
+    battleType: "sniper",
   },
   {
     id: 3,
@@ -108,6 +113,7 @@ export const CHAPTERS: ChapterDef[] = [
     reward: { provisions: 120, fighters: 20 },
     scoreReward: 180,
     historian: "NEEDS HISTORIAN REVIEW: logistics theme is generic.",
+    battleType: "formation",
   },
   {
     id: 4,
@@ -119,6 +125,7 @@ export const CHAPTERS: ChapterDef[] = [
     reward: { morale: 90, provisions: 60 },
     scoreReward: 220,
     historian: "NEEDS HISTORIAN REVIEW: seasonal/rainy-season logistics are illustrative.",
+    battleType: "sniper",
   },
   {
     id: 5,
@@ -130,6 +137,7 @@ export const CHAPTERS: ChapterDef[] = [
     reward: { fighters: 45, morale: 60 },
     scoreReward: 260,
     historian: "NEEDS HISTORIAN REVIEW: reconnaissance theme is generic.",
+    battleType: "formation",
   },
   {
     id: 6,
@@ -141,6 +149,7 @@ export const CHAPTERS: ChapterDef[] = [
     reward: { provisions: 150, morale: 100 },
     scoreReward: 320,
     historian: "NEEDS HISTORIAN REVIEW: unity-of-forces framing; regiments are fictional/campaign names.",
+    battleType: "mixed",
   },
   {
     id: 7,
@@ -153,6 +162,7 @@ export const CHAPTERS: ChapterDef[] = [
     scoreReward: 400,
     historian:
       "NEEDS HISTORIAN REVIEW: references the lead-up to the 1896 Battle of Adwa. Dates, locations, and framing must be verified.",
+    battleType: "sniper",
   },
   {
     id: 8,
@@ -166,6 +176,7 @@ export const CHAPTERS: ChapterDef[] = [
     scoreReward: 600,
     historian:
       "NEEDS HISTORIAN REVIEW: the Battle of Adwa (1 March 1896). Any date, outcome, and contextual claim must be historian-verified. No invented quotes or attributed actions.",
+    battleType: "formation",
   },
 ]
 

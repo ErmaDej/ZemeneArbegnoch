@@ -2,17 +2,20 @@
 
 import { useState } from "react"
 import { AnimatePresence, motion } from "framer-motion"
-import { Lock, Check, Swords, ChevronRight, Crown } from "lucide-react"
+import { Lock, Check, Swords, ChevronRight, Crown, Target } from "lucide-react"
+import { audio } from "@/lib/audio"
 import { useGame } from "@/lib/game-context"
 import { t } from "@/lib/i18n"
 import { CHAPTERS, TRIVIA_BANK, type ChapterDef } from "@/lib/game-data"
 import { BattleView } from "./battle-view"
+import { SniperBattle } from "./sniper-battle"
 import { TriviaModal } from "./trivia-modal"
 
 export function CampaignScreen() {
   const game = useGame()
   const { lang } = game
   const [battle, setBattle] = useState<ChapterDef | null>(null)
+  const [sniperBattle, setSniperBattle] = useState<ChapterDef | null>(null)
   const [triviaId, setTriviaId] = useState<number | null>(null)
 
   function handleBattleClose(chapterId: number, wasWin: boolean) {
@@ -57,11 +60,13 @@ export function CampaignScreen() {
                         : "border-border bg-card text-muted-foreground"
                   }`}
                 >
-                  {done ? (
+                   {done ? (
                     <Check className="size-6" />
                   ) : unlocked ? (
                     isFinal ? (
                       <Crown className="size-6" />
+                    ) : ch.battleType === "sniper" ? (
+                      <Target className="size-6" />
                     ) : (
                       <span className="font-serif text-lg font-bold">{ch.id}</span>
                     )
@@ -70,25 +75,32 @@ export function CampaignScreen() {
                   )}
                 </div>
 
-                <div
-                  className={`flex-1 rounded-xl border p-3 transition-colors ${
-                    unlocked ? "border-border bg-card/60" : "border-border/50 bg-card/30 opacity-70"
-                  } ${isFinal && unlocked ? "border-primary/40" : ""}`}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <h3
-                      className={`text-balance text-sm font-semibold text-foreground ${
-                        lang === "am" ? "font-ethiopic" : ""
-                      }`}
-                    >
-                      {lang === "am" ? ch.titleAm : ch.titleEn}
-                    </h3>
-                    {done && (
-                      <span className="shrink-0 rounded-full bg-victory/15 px-2 py-0.5 text-[10px] font-bold text-victory">
-                        {t(lang, "victory")}
-                      </span>
-                    )}
-                  </div>
+                   <div
+                   className={`flex-1 rounded-xl border p-3 transition-colors ${
+                     unlocked ? "border-border bg-card/60" : "border-border/50 bg-card/30 opacity-70"
+                   } ${isFinal && unlocked ? "border-primary/40" : ""} ${ch.battleType === "sniper" && unlocked ? "border-ember/30 bg-ember/5" : ""}`}
+                 >
+                   <div className="flex items-center justify-between gap-2">
+                     <h3
+                       className={`text-balance text-sm font-semibold text-foreground ${
+                         lang === "am" ? "font-ethiopic" : ""
+                       }`}
+                     >
+                       {lang === "am" ? ch.titleAm : ch.titleEn}
+                     </h3>
+                     <div className="flex items-center gap-1.5">
+                       {ch.battleType === "sniper" && unlocked && (
+                         <span className="shrink-0 rounded-full bg-ember/15 px-1.5 py-0.5 text-[9px] font-bold text-ember">
+                           🎯
+                         </span>
+                       )}
+                       {done && (
+                         <span className="shrink-0 rounded-full bg-victory/15 px-2 py-0.5 text-[10px] font-bold text-victory">
+                           {t(lang, "victory")}
+                         </span>
+                       )}
+                     </div>
+                   </div>
                   <p
                     className={`mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground ${
                       lang === "am" ? "font-ethiopic" : ""
@@ -98,9 +110,14 @@ export function CampaignScreen() {
                   </p>
 
                   {unlocked && (
-                    <button
+                    <motion.button
                       type="button"
-                      onClick={() => setBattle(ch)}
+                      onClick={() => {
+                        audio.play("battleStart", 0.2)
+                        if (ch.battleType === "sniper") setSniperBattle(ch)
+                        else setBattle(ch)
+                      }}
+                      whileTap={{ scale: 0.96 }}
                       className={`mt-2.5 flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
                         done
                           ? "bg-secondary text-secondary-foreground hover:bg-secondary/80"
@@ -108,9 +125,9 @@ export function CampaignScreen() {
                       }`}
                     >
                       <Swords className="size-3.5" />
-                      {done ? t(lang, "retry") : t(lang, "battle_start")}
+                      {done ? t(lang, "retry") : ch.battleType === "sniper" ? "🎯 " + t(lang, "battle_start") : t(lang, "battle_start")}
                       <ChevronRight className="size-3.5" />
-                    </button>
+                    </motion.button>
                   )}
                 </div>
               </li>
@@ -125,6 +142,17 @@ export function CampaignScreen() {
             key="battle"
             chapter={battle}
             onClose={(wasWin) => handleBattleClose(battle.id, wasWin)}
+          />
+        )}
+        {sniperBattle && (
+          <SniperBattle
+            key="sniper"
+            chapter={sniperBattle}
+            onClose={() => {
+              setSniperBattle(null)
+              const wasWin = game.completedChapters.includes(sniperBattle.id)
+              handleBattleClose(sniperBattle.id, wasWin)
+            }}
           />
         )}
         {triviaQuestion && (

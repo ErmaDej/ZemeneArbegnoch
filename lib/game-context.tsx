@@ -4,22 +4,26 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useReducer,
 import { CHAPTERS, UPGRADES, upgradeCost, BADGES, type ResourceKey, type Resources } from "./game-data"
 import type { Lang } from "./i18n"
 import { getGameUser, loadGameState, saveGameState, trackGameEvent, type SyncStatus } from "./supabase"
+import { audio } from "./audio"
 
 interface GameState {
   lang: Lang; displayName: string; resources: Resources; rates: Resources; upgradeLevels: Record<string, number>
   currentChapter: number; completedChapters: number[]; battlesFought: number; score: number
   answeredTrivia: number[]; referredBy: string | null; hydrated: boolean
+  audioMuted: boolean; sniperHits: number; sniperShots: number
 }
 const STARTING: GameState = {
-  lang: "am", displayName: "Arbegna", resources: { fighters: 12, provisions: 40, morale: 20 },
+  lang: "en", displayName: "Arbegna", resources: { fighters: 12, provisions: 40, morale: 20 },
   rates: { fighters: 0, provisions: 0, morale: 0 }, upgradeLevels: {}, currentChapter: 1,
   completedChapters: [], battlesFought: 0, score: 0, answeredTrivia: [], referredBy: null, hydrated: false,
+  audioMuted: false, sniperHits: 0, sniperShots: 0,
 }
 type Action =
   | { type: "HYDRATE"; payload: Partial<GameState> } | { type: "SET_LANG"; lang: Lang } | { type: "SET_NAME"; name: string }
   | { type: "TICK"; dt: number } | { type: "GATHER"; resource: ResourceKey } | { type: "BUY_UPGRADE"; id: string }
   | { type: "WIN_BATTLE"; chapterId: number } | { type: "LOSE_BATTLE" } | { type: "TRIVIA_REWARD"; questionId: number }
-  | { type: "REFERRAL_BONUS"; ref: string }
+  | { type: "REFERRAL_BONUS"; ref: string } | { type: "SET_AUDIO_MUTED"; muted: boolean }
+  | { type: "SNIPER_HIT" } | { type: "SNIPER_SHOT" }
 function computeRates(levels: Record<string, number>): Resources {
   const rates: Resources = { fighters: 0, provisions: 0, morale: 0 }
   for (const u of UPGRADES) rates[u.resource] += u.baseRate * (levels[u.id] ?? 0)
@@ -48,15 +52,20 @@ function reducer(state: GameState, action: Action): GameState {
     case "LOSE_BATTLE": return { ...state, battlesFought: state.battlesFought + 1 }
     case "TRIVIA_REWARD": return state.answeredTrivia.includes(action.questionId) ? state : { ...state, resources: { fighters: state.resources.fighters + 10, provisions: state.resources.provisions + 40, morale: state.resources.morale + 25 }, answeredTrivia: [...state.answeredTrivia, action.questionId], score: state.score + 50 }
     case "REFERRAL_BONUS": return state.referredBy ? state : { ...state, referredBy: action.ref, resources: { fighters: state.resources.fighters + 15, provisions: state.resources.provisions + 50, morale: state.resources.morale + 30 } }
+    case "SET_AUDIO_MUTED": return { ...state, audioMuted: action.muted }
+    case "SNIPER_HIT": return { ...state, sniperHits: state.sniperHits + 1 }
+    case "SNIPER_SHOT": return { ...state, sniperShots: state.sniperShots + 1 }
   }
 }
 interface GameContextValue extends GameState {
   telegramId: string; referralLink: string; syncStatus: SyncStatus; setLang: (lang: Lang) => void; setName: (name: string) => void
   gather: (resource: ResourceKey) => void; buyUpgrade: (id: string) => void; winBattle: (chapterId: number, formation: string) => void; loseBattle: (chapterId: number, formation: string) => void
   triviaReward: (questionId: number) => void; unlockedBadges: string[]; canAfford: (id: string) => boolean
+  toggleAudio: () => void; sniperHit: () => void; sniperShot: () => void
+  sniperAccuracy: number
 }
 const GameContext = createContext<GameContextValue | null>(null)
-const STORAGE_KEY = "zemene_arbegnoch_save_v2"
+const STORAGE_KEY = "zemene_arbegnoch_save_v3"
 const persistable = (state: GameState) => ({ ...state, hydrated: undefined, rates: undefined })
 
 export function GameProvider({ children }: { children: ReactNode }) {
@@ -69,6 +78,20 @@ export function GameProvider({ children }: { children: ReactNode }) {
     async function hydrate() {
       let saved: Partial<GameState> = {}
       try { const raw = localStorage.getItem(STORAGE_KEY); if (raw) saved = JSON.parse(raw) } catch {}
+      // Hydrate audio mute preference
+      try {
+        saved.audioMuted = localStorage.getItem("zemene_audio_muted") === "true"
+      } catch {}
+      audio.init()
+      if (!saved.audioMuted) audio.setMuted(false)
+      else audio.setMuted(true)
+      const resumeAudio = () => {
+        audio.resume()
+        document.removeEventListener("click", resumeAudio)
+        document.removeEventListener("touchstart", resumeAudio)
+      }
+      document.addEventListener("click", resumeAudio, { once: true })
+      document.addEventListener("touchstart", resumeAudio, { once: true })
       const tg = (window as any).Telegram?.WebApp
       if (tg?.initDataUnsafe?.user?.id) { telegramId.current = String(tg.initDataUnsafe.user.id); const user = tg.initDataUnsafe.user; saved.displayName ||= user.first_name || user.username; try { tg.ready?.(); tg.expand?.() } catch {} }
       const params = new URLSearchParams(window.location.search)
@@ -94,14 +117,18 @@ export function GameProvider({ children }: { children: ReactNode }) {
   const event = useCallback((eventType: string, payload: Record<string, unknown> = {}) => { const id = userId.current; if (id) void trackGameEvent(id, eventType, payload).catch(() => undefined) }, [])
   const setLang = useCallback((lang: Lang) => { dispatch({ type: "SET_LANG", lang }); event("language_changed", { lang }) }, [event])
   const setName = useCallback((name: string) => dispatch({ type: "SET_NAME", name }), [])
-  const gather = useCallback((resource: ResourceKey) => { dispatch({ type: "GATHER", resource }); event("gathered", { resource }) }, [event])
-  const buyUpgrade = useCallback((id: string) => { dispatch({ type: "BUY_UPGRADE", id }); event("upgrade_attempted", { id }) }, [event])
+  const gather = useCallback((resource: ResourceKey) => { dispatch({ type: "GATHER", resource }); event("gathered", { resource }); audio.play("gather") }, [event])
+  const buyUpgrade = useCallback((id: string) => { dispatch({ type: "BUY_UPGRADE", id }); event("upgrade_attempted", { id }); audio.play("upgrade") }, [event])
   const winBattle = useCallback((chapterId: number, formation: string) => { dispatch({ type: "WIN_BATTLE", chapterId }); event("battle_won", { chapterId, formation }) }, [event])
   const loseBattle = useCallback((chapterId: number, formation: string) => { dispatch({ type: "LOSE_BATTLE" }); event("battle_lost", { chapterId, formation }) }, [event])
-  const triviaReward = useCallback((questionId: number) => { dispatch({ type: "TRIVIA_REWARD", questionId }); event("trivia_correct", { questionId }) }, [event])
+  const triviaReward = useCallback((questionId: number) => { dispatch({ type: "TRIVIA_REWARD", questionId }); event("trivia_correct", { questionId }); audio.play("triviaCorrect") }, [event])
+  const toggleAudio = useCallback(() => { const muted = !state.audioMuted; dispatch({ type: "SET_AUDIO_MUTED", muted }); audio.setMuted(muted); event("audio_toggled", { muted }) }, [state.audioMuted, event])
+  const sniperHit = useCallback(() => { dispatch({ type: "SNIPER_HIT" }); event("sniper_hit") }, [event])
+  const sniperShot = useCallback(() => { dispatch({ type: "SNIPER_SHOT" }); event("sniper_shot") }, [event])
   const unlockedBadges = useMemo(() => BADGES.filter((b) => state.completedChapters.includes(b.chapterRequired)).map((b) => b.id), [state.completedChapters])
   const canAfford = useCallback((id: string) => { const def = UPGRADES.find((u) => u.id === id); return !!def && state.resources[def.costResource] >= upgradeCost(def, state.upgradeLevels[id] ?? 0) }, [state.resources, state.upgradeLevels])
   const referralLink = `https://t.me/ermurrybot/ZemeneArbegnoch?startapp=ref_${telegramId.current}`
-  return <GameContext.Provider value={{ ...state, telegramId: telegramId.current, referralLink, syncStatus, setLang, setName, gather, buyUpgrade, winBattle, loseBattle, triviaReward, unlockedBadges, canAfford }}>{children}</GameContext.Provider>
+  const sniperAccuracy = state.sniperShots > 0 ? Math.round((state.sniperHits / state.sniperShots) * 100) : 0
+  return <GameContext.Provider value={{ ...state, telegramId: telegramId.current, referralLink, syncStatus, setLang, setName, gather, buyUpgrade, winBattle, loseBattle, triviaReward, unlockedBadges, canAfford, toggleAudio, sniperHit, sniperShot, sniperAccuracy }}>{children}</GameContext.Provider>
 }
 export function useGame() { const context = useContext(GameContext); if (!context) throw new Error("useGame must be used within GameProvider"); return context }

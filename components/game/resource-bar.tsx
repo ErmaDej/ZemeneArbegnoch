@@ -1,7 +1,8 @@
 "use client"
 
 import { motion } from "framer-motion"
-import { Cloud, CloudOff, Globe, LoaderCircle } from "lucide-react"
+import { Cloud, CloudOff, Globe, LoaderCircle, Volume2, VolumeX } from "lucide-react"
+import { audio } from "@/lib/audio"
 import { useGame } from "@/lib/game-context"
 import { t } from "@/lib/i18n"
 import { RESOURCE_META, fmt } from "@/lib/ui"
@@ -28,7 +29,7 @@ export function ResourceBar() {
               <Icon className={`size-4 shrink-0 ${meta.color}`} aria-hidden />
               <div className="min-w-0 leading-tight">
                 <motion.div
-                  key={Math.floor(resources[key])}
+                  key={`resource-${key}`}
                   initial={{ opacity: 0.6, y: -2 }}
                   animate={{ opacity: 1, y: 0 }}
                   className="truncate font-mono text-sm font-semibold tabular-nums text-foreground"
@@ -50,6 +51,17 @@ export function ResourceBar() {
         >
           <Globe className="size-4" aria-hidden />
           <span className="w-6 text-center">{lang === "am" ? "አ" : "EN"}</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            game.toggleAudio()
+            audio.play(game.audioMuted ? "click" : "click", 0.1)
+          }}
+          className="flex shrink-0 items-center justify-center rounded-lg border border-primary/30 bg-primary/10 p-1.5 text-primary hover:bg-primary/20"
+          aria-label={game.audioMuted ? "Unmute" : "Mute"}
+        >
+          {game.audioMuted ? <VolumeX className="size-4" /> : <Volume2 className="size-4" />}
         </button>
       </div>
       <div className="mx-auto flex max-w-md items-center justify-end gap-1 px-3 pb-1.5 text-[10px] text-muted-foreground" aria-live="polite">
