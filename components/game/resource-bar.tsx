@@ -1,7 +1,7 @@
 "use client"
 
 import { motion } from "framer-motion"
-import { Globe } from "lucide-react"
+import { Cloud, CloudOff, Globe, LoaderCircle } from "lucide-react"
 import { useGame } from "@/lib/game-context"
 import { t } from "@/lib/i18n"
 import { RESOURCE_META, fmt } from "@/lib/ui"
@@ -12,6 +12,7 @@ const ORDER: ResourceKey[] = ["fighters", "provisions", "morale"]
 export function ResourceBar() {
   const game = useGame()
   const { lang, resources, rates } = game
+  const syncLabel = game.syncStatus === "saved" ? "Saved" : game.syncStatus === "offline" ? "Offline save" : "Connecting"
 
   return (
     <header className="sticky top-0 z-30 border-b border-primary/15 bg-background/80 backdrop-blur-md">
@@ -50,6 +51,10 @@ export function ResourceBar() {
           <Globe className="size-4" aria-hidden />
           <span className="w-6 text-center">{lang === "am" ? "አ" : "EN"}</span>
         </button>
+      </div>
+      <div className="mx-auto flex max-w-md items-center justify-end gap-1 px-3 pb-1.5 text-[10px] text-muted-foreground" aria-live="polite">
+        {game.syncStatus === "saved" ? <Cloud className="size-3 text-victory" /> : game.syncStatus === "offline" ? <CloudOff className="size-3 text-ember" /> : <LoaderCircle className="size-3 animate-spin" />}
+        {syncLabel}
       </div>
     </header>
   )

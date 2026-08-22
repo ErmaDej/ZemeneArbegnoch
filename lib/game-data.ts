@@ -72,7 +72,7 @@ export interface ChapterDef {
   // verified by a historian before launch. Combat is intentionally abstract.
   historian: string
   // Visual distinction for enemy type (abstract, stylized)
-  enemyColor: string // tailwind color class, e.g., "text-ember", "text-primary", etc.
+  enemyColor?: string // tailwind color class, e.g., "text-ember", "text-primary", etc.
 }
 
 export const CHAPTERS: ChapterDef[] = [

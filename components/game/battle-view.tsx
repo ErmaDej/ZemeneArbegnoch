@@ -2,13 +2,20 @@
 
 import { useEffect, useRef, useState } from "react"
 import { AnimatePresence, motion } from "framer-motion"
-import { Shield, Swords, Flag, Sparkles, X } from "lucide-react"
+import { Shield, Swords, Flag, Sparkles, X, Eye, Users } from "lucide-react"
 import { useGame } from "@/lib/game-context"
 import { t } from "@/lib/i18n"
 import { RESOURCE_META, fmt } from "@/lib/ui"
 import type { ChapterDef, ResourceKey } from "@/lib/game-data"
 
 type Phase = "march" | "clash" | "result"
+type Formation = "shieldwall" | "scouts" | "rally"
+
+const FORMATIONS: { id: Formation; label: string; detail: string; bonus: number; icon: typeof Shield }[] = [
+  { id: "shieldwall", label: "Shield wall", detail: "Steady defense", bonus: 1.08, icon: Shield },
+  { id: "scouts", label: "Scouts", detail: "Read the terrain", bonus: 1.14, icon: Eye },
+  { id: "rally", label: "Rally", detail: "Morale-led charge", bonus: 1.1, icon: Users },
+]
 
 // Player power is derived from standing forces + accumulated morale/provisions.
 export function computePlayerPower(resources: Record<ResourceKey, number>, cleared: number): number {
@@ -20,6 +27,7 @@ export function computePlayerPower(resources: Record<ResourceKey, number>, clear
 export function BattleView({ chapter, onClose }: { chapter: ChapterDef; onClose: () => void }) {
   const game = useGame()
   const { lang } = game
+  const { winBattle, loseBattle } = game
   const playerPower = computePlayerPower(game.resources, game.completedChapters.length)
   const enemyPower = chapter.enemyPower
 
@@ -28,12 +36,15 @@ export function BattleView({ chapter, onClose }: { chapter: ChapterDef; onClose:
   const [enemyHp, setEnemyHp] = useState(100)
   const [won, setWon] = useState(false)
   const [shake, setShake] = useState(0)
+  const [formation, setFormation] = useState<Formation | null>(null)
   const settled = useRef(false)
 
-  // Resolve by stat comparison + light randomness.
+  // A choice has a visible effect before the abstract battle begins.
   useEffect(() => {
+    if (!formation) return
+    const formationBonus = FORMATIONS.find((item) => item.id === formation)?.bonus ?? 1
     const roll = 0.82 + Math.random() * 0.36 // 0.82 - 1.18
-    const effectivePlayer = playerPower * roll
+    const effectivePlayer = playerPower * formationBonus * roll
     const didWin = effectivePlayer >= enemyPower
     const total = effectivePlayer + enemyPower
     // Loser drops to ~0, winner keeps a residual proportional to margin.
@@ -61,7 +72,8 @@ export function BattleView({ chapter, onClose }: { chapter: ChapterDef; onClose:
             settled.current = true
             setWon(didWin)
             setPhase("result")
-            if (didWin) game.winBattle(chapter.id)
+            if (didWin) winBattle(chapter.id, formation)
+            else loseBattle(chapter.id, formation)
           }
         }
       }, 260)
@@ -72,7 +84,7 @@ export function BattleView({ chapter, onClose }: { chapter: ChapterDef; onClose:
       clearTimeout(clashInt)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [chapter.id, enemyPower, formation, loseBattle, playerPower, winBattle])
 
   return (
     <motion.div
@@ -107,6 +119,21 @@ export function BattleView({ chapter, onClose }: { chapter: ChapterDef; onClose:
             </button>
           </div>
 
+          {!formation && (
+            <div className="relative mt-5 px-4">
+              <p className="mb-2 text-center text-xs font-semibold uppercase tracking-wider text-primary">Choose your formation</p>
+              <div className="grid grid-cols-3 gap-2">
+                {FORMATIONS.map((item) => {
+                  const Icon = item.icon
+                  return <button key={item.id} type="button" onClick={() => setFormation(item.id)} className="rounded-xl border border-primary/30 bg-background/75 px-2 py-3 text-left hover:border-primary hover:bg-primary/10">
+                    <Icon className="mb-1 size-4 text-victory" />
+                    <span className="block text-xs font-bold text-foreground">{item.label}</span>
+                    <span className="block text-[10px] text-muted-foreground">+{Math.round((item.bonus - 1) * 100)}% power</span>
+                  </button>
+                })}
+              </div>
+            </div>
+          )}
           {/* HP bars */}
           <div className="relative mt-4 flex items-center gap-3 px-4">
             <HpBar label={t(lang, "yourForce")} hp={playerHp} tone="victory" align="left" />
