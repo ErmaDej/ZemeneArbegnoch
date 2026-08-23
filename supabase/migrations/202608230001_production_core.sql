@@ -106,10 +106,20 @@ insert into public.campaign_stages (id, chapter_number, title_en, title_am, desc
  (3,3,'Supply Lines','የስንቅ መስመሮች','Guard the caravans carrying grain and gunpowder to the front.','ወደ ግንባር እህልና ባሩድ የሚያጓጉዙ ተሽከርካሪዎችን ጠብቅ።','formation',100,'{"provisions":120,"fighters":20}',180,'NEEDS HISTORIAN REVIEW: logistics theme is generic.'),
  (4,4,'The River Crossing','የወንዙ መሻገሪያ','Formations must cross swollen highland rivers before the rains close the fords.','ዝናቡ ከመዝጋቱ በፊት ወንዞችን መሻገር አለባቸው።','sniper',135,'{"morale":90,"provisions":60}',220,'NEEDS HISTORIAN REVIEW: seasonal logistics are illustrative.'),
  (5,5,'The Long Watch','ረዥም ጥበቃ','Scouts track movements across the ranges through cold nights.','ተመልካቾች በቀዝቃዛ ሌሊቶች እንቅስቃሴዎችን ይከታተላሉ።','formation',175,'{"fighters":45,"morale":60}',260,'NEEDS HISTORIAN REVIEW: reconnaissance theme is generic.'),
- (6,6,'Rally of the Regiments','የክፍለ ጦሮች ስብሰባ','Separate formations unite under a shared banner for the decisive stand.','የተለያዩ ክፍሎች በአንድ ባንዲራ ስር ተባበሩ።','mixed',230,'{"provisions":150,"morale":100}',320,'NEEDS HISTORIAN REVIEW: regiments are fictional/campaign names.'),
+ (6,6,'Rally of the Regiments','የክፍለ ጦሮች ስብሰባ','Separate formations unite under a shared banner for the decisive stand.','የተለያዩ ክፍሎች በአንድ ባንዲራ ስር ተባበሩ።','formation',230,'{"provisions":150,"morale":100}',320,'NEEDS HISTORIAN REVIEW: regiments are fictional/campaign names.'),
  (7,7,'Eve of Adwa','የዐድዋ ዋዜማ','The largest force yet assembles on the plains near Adwa. Resolve is tested.','እስካሁን ትልቁ ኃይል በዐድዋ አቅራቢያ ተሰበሰበ።','sniper',300,'{"fighters":70,"morale":140}',400,'NEEDS HISTORIAN REVIEW: lead-up to Adwa 1896; verify dates and framing.'),
  (8,8,'The Day at Adwa','የዐድዋ ቀን','1 March 1896 — remembered as a landmark victory and a source of shared national pride. Presented respectfully and abstractly.','የ1896 ድል — እንደ ብሔራዊ ኩራት ምንጭ ይታወሳል።','formation',380,'{"fighters":120,"provisions":200,"morale":200}',600,'NEEDS HISTORIAN REVIEW: Battle of Adwa (1 March 1896); verify all claims.')
-on conflict (id) do nothing;
+on conflict (id) do update set
+  chapter_number = excluded.chapter_number,
+  title_en = excluded.title_en,
+  title_am = excluded.title_am,
+  description_en = excluded.description_en,
+  description_am = excluded.description_am,
+  battle_type = excluded.battle_type,
+  enemy_power = excluded.enemy_power,
+  reward_config = excluded.reward_config,
+  score_reward = excluded.score_reward,
+  historical_note = excluded.historical_note;
 
 create table if not exists public.player_campaign (
   player_id uuid not null references public.players(id) on delete cascade,

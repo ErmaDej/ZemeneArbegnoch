@@ -149,7 +149,7 @@ export const CHAPTERS: ChapterDef[] = [
     reward: { provisions: 150, morale: 100 },
     scoreReward: 320,
     historian: "NEEDS HISTORIAN REVIEW: unity-of-forces framing; regiments are fictional/campaign names.",
-    battleType: "mixed",
+    battleType: "formation",
   },
   {
     id: 7,
