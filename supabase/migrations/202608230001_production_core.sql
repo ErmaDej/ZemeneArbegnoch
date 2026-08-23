@@ -306,14 +306,10 @@ drop function if exists private_game.ensure_player_rows();
 
 create schema if not exists private_game;
 
--- Deterministic LCG step derived from a session seed. Returns the NEXT state
--- (callers derive the fraction themselves, keeping INOUT/RETURN types aligned).
-create or replace function private_game.lcg_next(state inout bigint)
-returns bigint language plpgsql immutable as $$
-begin
-  state := (state * 1103515245 + 12345) % 2147483648;
-  return state;
-end;
+-- Deterministic LCG step derived from a session seed (pure: state in → next state out).
+create or replace function private_game.lcg_next(state bigint)
+returns bigint language sql immutable as $$
+  select (state * 1103515245 + 12345) % 2147483648;
 $$;
 
 -- Fraction in [0,1) from an LCG state value.
