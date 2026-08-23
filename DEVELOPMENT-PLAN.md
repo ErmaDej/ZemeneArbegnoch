@@ -46,8 +46,12 @@ is ever computed or persisted by the browser.
    editor (idempotent). It also imports any legacy JSON-blob saves.
 2. **Secure the bot token:**
    ```sql
-   ALTER DATABASE postgres SET "app.telegram_bot_token" = '<YOUR_BOT_TOKEN>';
+   insert into private_game.bot_settings (key, value)
+   values ('telegram_bot_token', '<YOUR_BOT_TOKEN>')
+   on conflict (key) do update set value = excluded.value;
    ```
+   (Supabase's `postgres` role cannot `ALTER DATABASE SET` custom parameters,
+   so the secret lives in a private, non-exposed schema instead.)
    ⚠️ A bot token was previously committed to git history. **Revoke it via
    @BotFather (/revoke) and reissue** before launch.
 3. **Vercel env vars:** set `NEXT_PUBLIC_SUPABASE_URL` and

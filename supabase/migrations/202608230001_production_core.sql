@@ -8,7 +8,9 @@
 --   and run it ONCE. Every statement is idempotent.
 --
 -- AFTER RUNNING, secure the Telegram bot token server-side (do NOT commit it):
---   ALTER DATABASE postgres SET "app.telegram_bot_token" = '<YOUR_BOT_TOKEN>';
+--   insert into private_game.bot_settings (key, value)
+--   values ('telegram_bot_token', '<YOUR_BOT_TOKEN>')
+--   on conflict (key) do update set value = excluded.value;
 --
 -- SECURITY NOTE: a Telegram bot token was previously committed to git history
 -- in this repository. Revoke it via @BotFather (/revoke) before going live.
@@ -304,7 +306,27 @@ drop function if exists private_game.lcg_frac(bigint);
 drop function if exists private_game.build_sniper_targets(bigint, int);
 drop function if exists private_game.ensure_player_rows();
 
+-- ---------------------------------------------------------------------------
+-- SERVER SECRETS (private schema; never exposed via PostgREST/RLS).
+-- Supabase's postgres role cannot run ALTER DATABASE ... SET for custom
+-- parameters, so the Telegram bot token lives here instead.
+-- AFTER RUNNING THIS MIGRATION, set the token ONCE with:
+--   insert into private_game.bot_settings (key, value)
+--   values ('telegram_bot_token', '<YOUR_BOT_TOKEN>')
+--   on conflict (key) do update set value = excluded.value;
+-- ---------------------------------------------------------------------------
 create schema if not exists private_game;
+create table if not exists private_game.bot_settings (
+  key text primary key,
+  value text not null,
+  updated_at timestamptz not null default now()
+);
+revoke all on schema private_game from public;
+revoke all on schema private_game from anon;
+revoke all on schema private_game from authenticated;
+revoke all on private_game.bot_settings from public;
+revoke all on private_game.bot_settings from anon;
+revoke all on private_game.bot_settings from authenticated;
 
 -- Deterministic LCG step derived from a session seed (pure: state in → next state out).
 create or replace function private_game.lcg_next(state bigint)
@@ -496,12 +518,12 @@ end;
 $$;
 
 -- Validate Telegram WebApp initData server-side (official HMAC-SHA256 algo).
--- Requires first running, as project owner in the SQL editor:
---   ALTER DATABASE postgres SET "app.telegram_bot_token" = '<token>';
+-- Requires the bot token stored once in private_game.bot_settings
+-- (key = 'telegram_bot_token') — see the secrets block above.
 create or replace function public.game_link_telegram(p_init_data text)
 returns jsonb language plpgsql security definer set search_path = '' as $$
 declare
-  v_token text := current_setting('app.telegram_bot_token', true);
+  v_token text;
   v_pairs text[];
   v_pair text;
   v_hash text := '';
@@ -515,6 +537,8 @@ begin
   if v_uid is null or p_init_data is null or p_init_data = '' then
     return jsonb_build_object('linked', false, 'reason', 'missing_input');
   end if;
+
+  select value into v_token from private_game.bot_settings where key = 'telegram_bot_token';
   if v_token is null or v_token = '' then
     return jsonb_build_object('linked', false, 'reason', 'server_not_configured');
   end if;
