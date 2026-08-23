@@ -299,16 +299,27 @@ drop function if exists public.game_submit_battle(uuid, jsonb, text);
 drop function if exists public.game_submit_trivia(int, int);
 drop function if exists public.game_process_referral(text);
 drop function if exists public.game_get_leaderboard(text);
+drop function if exists private_game.lcg_next(bigint);
+drop function if exists private_game.lcg_frac(bigint);
+drop function if exists private_game.build_sniper_targets(bigint, int);
+drop function if exists private_game.ensure_player_rows();
 
 create schema if not exists private_game;
 
--- Deterministic LCG random in [0,1) derived from a session seed.
+-- Deterministic LCG step derived from a session seed. Returns the NEXT state
+-- (callers derive the fraction themselves, keeping INOUT/RETURN types aligned).
 create or replace function private_game.lcg_next(state inout bigint)
-returns double precision language plpgsql immutable as $$
+returns bigint language plpgsql immutable as $$
 begin
   state := (state * 1103515245 + 12345) % 2147483648;
-  return state::double precision / 2147483648.0;
+  return state;
 end;
+$$;
+
+-- Fraction in [0,1) from an LCG state value.
+create or replace function private_game.lcg_frac(state bigint)
+returns double precision language sql immutable as $$
+  select state::double precision / 2147483648.0;
 $$;
 
 -- Build the deterministic sniper target schedule from the session seed and
@@ -348,14 +359,16 @@ begin
     -- Shuffle of lane indices per target slot (seeded).
     v_order := array(select g from generate_series(0, v_lane_count - 1) g);
     for v_j in reverse v_lane_count - 1..1 loop
-      v_rnd := private_game.lcg_next(v_state);
+      v_state := private_game.lcg_next(v_state);
+      v_rnd := private_game.lcg_frac(v_state);
       v_swap_idx := 1 + floor(v_rnd * (v_j + 1))::int;
       v_tmp := v_order[v_swap_idx];
       v_order[v_swap_idx] := v_order[1 + v_j];
       v_order[1 + v_j] := v_tmp;
     end loop;
 
-    v_rnd := private_game.lcg_next(v_state);
+    v_state := private_game.lcg_next(v_state);
+    v_rnd := private_game.lcg_frac(v_state);
     v_tier := case when v_rnd < 0.16 then 'armored' when v_rnd < 0.32 then 'fast' else 'normal' end;
     v_lifetime := case v_tier
       when 'armored' then 2600 - p_difficulty * 60
