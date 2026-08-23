@@ -283,7 +283,22 @@ create policy "badges own row" on public.player_achievements for select using (a
 -- ===========================================================================
 -- SERVER-AUTHORITATIVE GAME LOGIC (security definer RPCs)
 -- The client renders; these functions decide.
+-- Drop-first: CREATE OR REPLACE cannot change a function's return type, so any
+-- older/differently-shaped definition is removed before recreation. This keeps
+-- re-runs safe on databases where an earlier partial/legacy version exists.
 -- ===========================================================================
+
+drop function if exists public.game_init_state();
+drop function if exists public.game_link_telegram(text);
+drop function if exists public.game_gather(text);
+drop function if exists public.game_gather(text, int);
+drop function if exists public.game_upgrade_building(text);
+drop function if exists public.game_claim_passive();
+drop function if exists public.game_start_battle(int);
+drop function if exists public.game_submit_battle(uuid, jsonb, text);
+drop function if exists public.game_submit_trivia(int, int);
+drop function if exists public.game_process_referral(text);
+drop function if exists public.game_get_leaderboard(text);
 
 create schema if not exists private_game;
 
