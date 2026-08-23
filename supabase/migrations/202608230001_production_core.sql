@@ -290,6 +290,12 @@ create policy "badges own row" on public.player_achievements for select using (a
 -- re-runs safe on databases where an earlier partial/legacy version exists.
 -- ===========================================================================
 
+-- pgcrypto provides gen_random_bytes + hmac for referral codes and Telegram
+-- initData validation. Installed in the `extensions` schema (Supabase default);
+-- all call sites qualify it explicitly because the RPCs run with an empty
+-- search_path (only pg_catalog is implicit there).
+create extension if not exists pgcrypto with schema extensions;
+
 drop function if exists public.game_init_state();
 drop function if exists public.game_link_telegram(text);
 drop function if exists public.game_gather(text);
@@ -425,7 +431,7 @@ begin
   on conflict (id) do nothing;
 
   update public.players
-     set referral_code = coalesce(referral_code, 'Z' || upper(substr(encode(gen_random_bytes(6),'hex'), 1, 8))),
+     set referral_code = coalesce(referral_code, 'Z' || upper(substr(encode(extensions.gen_random_bytes(6),'hex'), 1, 8))),
          last_active_at = now()
    where id = v_uid;
 
@@ -562,8 +568,8 @@ begin
     return jsonb_build_object('linked', false, 'reason', 'malformed');
   end if;
 
-  v_secret := hmac('WebAppData', v_token, 'sha256');
-  v_computed := encode(hmac(array_to_string(v_data_check, chr(10)), v_secret, 'sha256'), 'hex');
+  v_secret := extensions.hmac('WebAppData', v_token, 'sha256');
+  v_computed := encode(extensions.hmac(array_to_string(v_data_check, chr(10)), v_secret, 'sha256'), 'hex');
 
   if v_computed <> lower(v_hash) then
     insert into public.anti_cheat_events (player_id, event_type, severity, metadata)
