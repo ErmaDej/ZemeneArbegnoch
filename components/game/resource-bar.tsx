@@ -12,7 +12,7 @@ const ORDER: ResourceKey[] = ["fighters", "provisions", "morale"]
 
 export function ResourceBar() {
   const game = useGame()
-  const { lang, resources, rates } = game
+  const { lang, displayedResources: resources, rates } = game
   const syncLabel = game.syncStatus === "saved" ? "Saved" : game.syncStatus === "offline" ? "Offline save" : "Connecting"
 
   return (

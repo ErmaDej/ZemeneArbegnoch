@@ -33,6 +33,11 @@ export function CampScreen() {
     setTimeout(() => setFloats((f) => f.filter((x) => x.id !== id)), 900)
   }
 
+  async function handleUpgrade(id: string) {
+    await game.buyUpgrade(id)
+    audio.play("upgrade", 0.15)
+  }
+
   return (
     <div className="mx-auto max-w-md pb-4">
       {/* Camp hero */}
@@ -107,7 +112,7 @@ export function CampScreen() {
         </div>
         <div className="flex flex-col gap-2.5">
           {UPGRADES.map((u) => {
-            const level = game.upgradeLevels[u.id] ?? 0
+            const level = game.buildings[u.id] ?? 0
             const cost = upgradeCost(u, level)
             const afford = game.canAfford(u.id)
             const resMeta = RESOURCE_META[u.resource]
@@ -140,7 +145,7 @@ export function CampScreen() {
                   type="button"
                   whileTap={{ scale: 0.94 }}
                   disabled={!afford}
-                  onClick={() => { game.buyUpgrade(u.id); audio.play("upgrade", 0.15) }}
+                  onClick={() => void handleUpgrade(u.id)}
                   className={`flex shrink-0 flex-col items-center gap-0.5 rounded-lg px-3 py-2 text-xs font-semibold transition-colors ${
                     afford
                       ? "bg-primary text-primary-foreground hover:bg-primary/85"

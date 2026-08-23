@@ -186,7 +186,9 @@ export interface TriviaQuestion {
   questionAm: string
   optionsEn: string[]
   optionsAm: string[]
-  correctIndex: number
+  // NOTE: the correct answer index lives ONLY in the server-side trivia_questions
+  // table. The client renders questions and submits an answer; the server verdict
+  // drives the UI (see game_submit_trivia in the production migration).
   sourceNote: string
 }
 
@@ -200,7 +202,6 @@ export const TRIVIA_BANK: TriviaQuestion[] = [
     questionAm: "የዐድዋ ጦርነት በየትኛው ዓመት ተካሄደ?",
     optionsEn: ["1878", "1889", "1896", "1913"],
     optionsAm: ["1878", "1889", "1896", "1913"],
-    correctIndex: 2,
     sourceNote: "NEEDS HISTORIAN REVIEW: commonly cited as 1 March 1896.",
   },
   {
@@ -209,7 +210,6 @@ export const TRIVIA_BANK: TriviaQuestion[] = [
     questionAm: "የዐድዋ ጦርነት በአሁኑ ኢትዮጵያ በየትኛው ክልል ተካሄደ?",
     optionsEn: ["Tigray", "Sidama", "Gambela", "Afar"],
     optionsAm: ["ትግራይ", "ሲዳማ", "ጋምቤላ", "አፋር"],
-    correctIndex: 0,
     sourceNote: "NEEDS HISTORIAN REVIEW: Adwa is located in the Tigray region.",
   },
   {
@@ -218,7 +218,6 @@ export const TRIVIA_BANK: TriviaQuestion[] = [
     questionAm: "የኢትዮጵያ ዋና ከተማ ማን ናት?",
     optionsEn: ["Gondar", "Addis Ababa", "Axum", "Harar"],
     optionsAm: ["ጎንደር", "አዲስ አበባ", "አክሱም", "ሐረር"],
-    correctIndex: 1,
     sourceNote: "NEEDS HISTORIAN REVIEW: Addis Ababa founded in the late 19th century.",
   },
   {
@@ -227,7 +226,6 @@ export const TRIVIA_BANK: TriviaQuestion[] = [
     questionAm: "አማርኛን ለመጻፍ በባህላዊ የሚጠቀመው ፊደል የትኛው ነው?",
     optionsEn: ["Latin", "Ge'ez (Fidel)", "Arabic", "Cyrillic"],
     optionsAm: ["ላቲን", "ግዕዝ (ፊደል)", "ዓረብኛ", "ሲሪሊክ"],
-    correctIndex: 1,
     sourceNote: "NEEDS HISTORIAN REVIEW: Amharic uses the Ge'ez script.",
   },
   {
@@ -236,7 +234,6 @@ export const TRIVIA_BANK: TriviaQuestion[] = [
     questionAm: "የዐድዋ ድል መታሰቢያ በየትኛው ወር ይከበራል?",
     optionsEn: ["January", "March", "July", "November"],
     optionsAm: ["ጥር", "መጋቢት", "ሐምሌ", "ኅዳር"],
-    correctIndex: 1,
     sourceNote: "NEEDS HISTORIAN REVIEW: commemorated in early March.",
   },
   {
@@ -245,7 +242,6 @@ export const TRIVIA_BANK: TriviaQuestion[] = [
     questionAm: "በተቀረጹ ረዣዥም ሐውልቶች የምትታወቀው ጥንታዊ ከተማ የትኛዋ ናት?",
     optionsEn: ["Lalibela", "Axum", "Dire Dawa", "Bahir Dar"],
     optionsAm: ["ላሊበላ", "አክሱም", "ድሬዳዋ", "ባህር ዳር"],
-    correctIndex: 1,
     sourceNote: "NEEDS HISTORIAN REVIEW: Axum is known for its ancient stelae.",
   },
   {
@@ -254,7 +250,6 @@ export const TRIVIA_BANK: TriviaQuestion[] = [
     questionAm: "የኢትዮጵያ ደጋማ አካባቢ ውሃ የሚፈሰው ወደ የትኛው ወንዝ ነው?",
     optionsEn: ["Congo", "Nile", "Niger", "Zambezi"],
     optionsAm: ["ኮንጎ", "ናይል", "ኒጀር", "ዛምቤዚ"],
-    correctIndex: 1,
     sourceNote: "NEEDS HISTORIAN REVIEW: the Blue Nile rises in the Ethiopian highlands.",
   },
   {
@@ -263,7 +258,6 @@ export const TRIVIA_BANK: TriviaQuestion[] = [
     questionAm: "እንጀራ ለመስራት የሚያገለግለው የኢትዮጵያ ተወላጅ እህል የትኛው ነው?",
     optionsEn: ["Teff", "Rice", "Barley", "Maize"],
     optionsAm: ["ጤፍ", "ሩዝ", "ገብስ", "በቆሎ"],
-    correctIndex: 0,
     sourceNote: "NEEDS HISTORIAN REVIEW: teff is an indigenous Ethiopian grain.",
   },
   {
@@ -272,7 +266,6 @@ export const TRIVIA_BANK: TriviaQuestion[] = [
     questionAm: "በባህላዊ የኢትዮጵያ ባንዲራ ላይ ስንት ቀለሞች አሉ?",
     optionsEn: ["Two", "Three", "Four", "Five"],
     optionsAm: ["ሁለት", "ሶስት", "አራት", "አምስት"],
-    correctIndex: 1,
     sourceNote: "NEEDS HISTORIAN REVIEW: green, yellow, and red tricolor.",
   },
   {
@@ -281,7 +274,6 @@ export const TRIVIA_BANK: TriviaQuestion[] = [
     questionAm: "በቅርስነት የሚታወቁት ከድንጋይ የተፈለፈሉ አብያተ ክርስቲያናት የት ይገኛሉ?",
     optionsEn: ["Lalibela", "Adwa", "Jimma", "Mekelle"],
     optionsAm: ["ላሊበላ", "ዐድዋ", "ጅማ", "መቀሌ"],
-    correctIndex: 0,
     sourceNote: "NEEDS HISTORIAN REVIEW: Lalibela's rock-hewn churches.",
   },
 ]

@@ -1,90 +1,125 @@
 "use client"
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, type ReactNode } from "react"
-import { CHAPTERS, UPGRADES, upgradeCost, BADGES, type ResourceKey, type Resources } from "./game-data"
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react"
+import { UPGRADES, type ResourceKey, type Resources } from "./game-data"
 import type { Lang } from "./i18n"
-import { getGameUser, loadGameState, saveGameState, trackGameEvent, type SyncStatus } from "./supabase"
+import { getGameUser, supabase, telegramInitData } from "./supabase"
+import { api, type BattleAction, type BattleSession, type BattleSummary, type PlayerProfile, type StageStat } from "./api"
 import { audio } from "./audio"
 
-interface GameState {
-  lang: Lang; displayName: string; resources: Resources; rates: Resources; upgradeLevels: Record<string, number>
-  currentChapter: number; completedChapters: number[]; battlesFought: number; score: number
-  answeredTrivia: number[]; referredBy: string | null; hydrated: boolean
-  audioMuted: boolean; sniperHits: number; sniperShots: number
+export interface GameState {
+  hydrated: boolean
+  syncStatus: "connecting" | "saved" | "offline"
+  lang: Lang
+  audioMuted: boolean
+  profile: PlayerProfile
+  resources: Resources
+  // Local display-only accrual between authoritative server settlements.
+  localBonus: Resources
+  buildings: Record<string, number>
+  completedStages: number[]
+  stageStats: Record<string, StageStat>
+  answeredTrivia: number[]
+  unlockedAchievements: string[]
 }
+
 const STARTING: GameState = {
-  lang: "en", displayName: "Arbegna", resources: { fighters: 12, provisions: 40, morale: 20 },
-  rates: { fighters: 0, provisions: 0, morale: 0 }, upgradeLevels: {}, currentChapter: 1,
-  completedChapters: [], battlesFought: 0, score: 0, answeredTrivia: [], referredBy: null, hydrated: false,
-  audioMuted: false, sniperHits: 0, sniperShots: 0,
+  hydrated: false,
+  syncStatus: "connecting",
+  lang: "en",
+  audioMuted: false,
+  profile: {
+    displayName: "Arbegna",
+    telegramLinked: false,
+    totalScore: 0,
+    xp: 0,
+    level: 1,
+    lifetimeBattles: 0,
+    lifetimeWins: 0,
+    bestAccuracy: 0,
+    bestCombo: 0,
+    referralCode: null,
+    referredBy: null,
+  },
+  resources: { fighters: 12, provisions: 40, morale: 20 },
+  localBonus: { fighters: 0, provisions: 0, morale: 0 },
+  buildings: {},
+  completedStages: [],
+  stageStats: {},
+  answeredTrivia: [],
+  unlockedAchievements: [],
 }
-type Action =
-  | { type: "HYDRATE"; payload: Partial<GameState> } | { type: "SET_LANG"; lang: Lang } | { type: "SET_NAME"; name: string }
-  | { type: "TICK"; dt: number } | { type: "GATHER"; resource: ResourceKey } | { type: "BUY_UPGRADE"; id: string }
-  | { type: "WIN_BATTLE"; chapterId: number } | { type: "LOSE_BATTLE" } | { type: "TRIVIA_REWARD"; questionId: number }
-  | { type: "REFERRAL_BONUS"; ref: string } | { type: "SET_AUDIO_MUTED"; muted: boolean }
-  | { type: "SNIPER_HIT" } | { type: "SNIPER_SHOT" }
-function computeRates(levels: Record<string, number>): Resources {
+
+export function computeRates(buildings: Record<string, number>): Resources {
   const rates: Resources = { fighters: 0, provisions: 0, morale: 0 }
-  for (const u of UPGRADES) rates[u.resource] += u.baseRate * (levels[u.id] ?? 0)
+  for (const u of UPGRADES) rates[u.resource] += u.baseRate * (buildings[u.id] ?? 0)
   return rates
 }
-function reducer(state: GameState, action: Action): GameState {
-  switch (action.type) {
-    case "HYDRATE": { const next = { ...state, ...action.payload, hydrated: true }; next.rates = computeRates(next.upgradeLevels); return next }
-    case "SET_LANG": return { ...state, lang: action.lang }
-    case "SET_NAME": return { ...state, displayName: action.name.trim() || "Arbegna" }
-    case "TICK": return { ...state, resources: Object.fromEntries(Object.entries(state.resources).map(([k, v]) => [k, v + state.rates[k as ResourceKey] * action.dt])) as Resources }
-    case "GATHER": { const gain = action.resource === "provisions" ? 3 : action.resource === "fighters" ? 1 : 2; return { ...state, resources: { ...state.resources, [action.resource]: state.resources[action.resource] + gain } } }
-    case "BUY_UPGRADE": {
-      const def = UPGRADES.find((u) => u.id === action.id); if (!def) return state
-      const level = state.upgradeLevels[action.id] ?? 0; const cost = upgradeCost(def, level)
-      if (state.resources[def.costResource] < cost) return state
-      const upgradeLevels = { ...state.upgradeLevels, [action.id]: level + 1 }
-      return { ...state, resources: { ...state.resources, [def.costResource]: state.resources[def.costResource] - cost }, upgradeLevels, rates: computeRates(upgradeLevels), score: state.score + 5 }
-    }
-    case "WIN_BATTLE": {
-      if (state.completedChapters.includes(action.chapterId)) return state
-      const chapter = CHAPTERS.find((c) => c.id === action.chapterId); if (!chapter) return state
-      const resources = { ...state.resources }; for (const [key, amount] of Object.entries(chapter.reward)) resources[key as ResourceKey] += amount as number
-      return { ...state, resources, completedChapters: [...state.completedChapters, action.chapterId], currentChapter: Math.min(action.chapterId + 1, CHAPTERS.length), battlesFought: state.battlesFought + 1, score: state.score + chapter.scoreReward }
-    }
-    case "LOSE_BATTLE": return { ...state, battlesFought: state.battlesFought + 1 }
-    case "TRIVIA_REWARD": return state.answeredTrivia.includes(action.questionId) ? state : { ...state, resources: { fighters: state.resources.fighters + 10, provisions: state.resources.provisions + 40, morale: state.resources.morale + 25 }, answeredTrivia: [...state.answeredTrivia, action.questionId], score: state.score + 50 }
-    case "REFERRAL_BONUS": return state.referredBy ? state : { ...state, referredBy: action.ref, resources: { fighters: state.resources.fighters + 15, provisions: state.resources.provisions + 50, morale: state.resources.morale + 30 } }
-    case "SET_AUDIO_MUTED": return { ...state, audioMuted: action.muted }
-    case "SNIPER_HIT": return { ...state, sniperHits: state.sniperHits + 1 }
-    case "SNIPER_SHOT": return { ...state, sniperShots: state.sniperShots + 1 }
-  }
-}
+
 interface GameContextValue extends GameState {
-  telegramId: string; referralLink: string; syncStatus: SyncStatus; setLang: (lang: Lang) => void; setName: (name: string) => void
-  gather: (resource: ResourceKey) => void; buyUpgrade: (id: string) => void; winBattle: (chapterId: number, formation: string) => void; loseBattle: (chapterId: number, formation: string) => void
-  triviaReward: (questionId: number) => void; unlockedBadges: string[]; canAfford: (id: string) => boolean
-  toggleAudio: () => void; sniperHit: () => void; sniperShot: () => void
-  sniperAccuracy: number
+  displayedResources: Resources
+  rates: Resources
+  referralLink: string
+  setLang: (lang: Lang) => void
+  toggleAudio: () => void
+  gather: (resource: ResourceKey) => void
+  buyUpgrade: (id: string) => Promise<void>
+  canAfford: (id: string) => boolean
+  prepareBattle: (stageId: number) => Promise<BattleSession>
+  finishBattle: (
+    sessionId: string,
+    actions: BattleAction[],
+    formation?: "shieldwall" | "scouts" | "rally",
+  ) => Promise<BattleSummary>
+  answerTrivia: (questionId: number, answerIndex: number) => Promise<{ correct: boolean; rewarded: boolean }>
+  refreshState: () => Promise<void>
 }
+
 const GameContext = createContext<GameContextValue | null>(null)
-const STORAGE_KEY = "zemene_arbegnoch_save_v3"
-const persistable = (state: GameState) => ({ ...state, hydrated: undefined, rates: undefined })
+
+const LANG_KEY = "zemene_lang"
+const AUDIO_KEY = "zemene_audio_muted"
+const REFERRAL_KEY = "zemene_referral_processed"
 
 export function GameProvider({ children }: { children: ReactNode }) {
-  const [state, dispatch] = useReducer(reducer, STARTING)
-  const lastTick = useRef(Date.now()), telegramId = useRef("demo_player"), userId = useRef<string | null>(null)
+  const [state, setState] = useState<GameState>(STARTING)
   const stateRef = useRef(state)
-  const [syncStatus, setSyncStatus] = useReducer((_: SyncStatus, next: SyncStatus) => next, "connecting")
+  useEffect(() => {
+    stateRef.current = state
+  }, [state])
+
+  const patch = useCallback((p: Partial<GameState>) => setState((s) => ({ ...s, ...p })), [])
+  const markSaved = () => setState((s) => ({ ...s, syncStatus: "saved" }))
+  const markOffline = () => setState((s) => ({ ...s, syncStatus: "offline" }))
+  const applyServerResources = useCallback((res: Partial<Resources>) => {
+    setState((s) => ({
+      ...s,
+      resources: { ...s.resources, ...res },
+      localBonus: { fighters: 0, provisions: 0, morale: 0 },
+    }))
+  }, [])
+
+  // ---- hydration ----------------------------------------------------------
   useEffect(() => {
     let cancelled = false
     async function hydrate() {
-      let saved: Partial<GameState> = {}
-      try { const raw = localStorage.getItem(STORAGE_KEY); if (raw) saved = JSON.parse(raw) } catch {}
-      // Hydrate audio mute preference
-      try {
-        saved.audioMuted = localStorage.getItem("zemene_audio_muted") === "true"
-      } catch {}
       audio.init()
-      if (!saved.audioMuted) audio.setMuted(false)
-      else audio.setMuted(true)
+      let muted = false
+      try {
+        muted = localStorage.getItem(AUDIO_KEY) === "true"
+        const savedLang = localStorage.getItem(LANG_KEY)
+        if (savedLang === "am" || savedLang === "en") patch({ lang: savedLang })
+      } catch {}
+      audio.setMuted(muted)
       const resumeAudio = () => {
         audio.resume()
         document.removeEventListener("click", resumeAudio)
@@ -92,43 +127,299 @@ export function GameProvider({ children }: { children: ReactNode }) {
       }
       document.addEventListener("click", resumeAudio, { once: true })
       document.addEventListener("touchstart", resumeAudio, { once: true })
-      const tg = (window as any).Telegram?.WebApp
-      if (tg?.initDataUnsafe?.user?.id) { telegramId.current = String(tg.initDataUnsafe.user.id); const user = tg.initDataUnsafe.user; saved.displayName ||= user.first_name || user.username; try { tg.ready?.(); tg.expand?.() } catch {} }
-      const params = new URLSearchParams(window.location.search)
-      const param = tg?.initDataUnsafe?.start_param || params.get("startapp") || params.get("ref")
-      if (param?.startsWith("ref_") && !saved.referredBy) (saved as Record<string, unknown>).__pendingRef = param
+
       try {
-        const user = await getGameUser(telegramId.current, saved.displayName)
-        if (user) { userId.current = user.id; const remote = await loadGameState(user.id); if (remote?.state && typeof remote.state === "object") saved = { ...saved, ...(remote.state as Partial<GameState>) }; if (!cancelled) setSyncStatus("saved") }
-        else if (!cancelled) setSyncStatus("offline")
-      } catch { if (!cancelled) setSyncStatus("offline") }
-      if (!cancelled) { dispatch({ type: "HYDRATE", payload: saved }); const pendingRef = (saved as Record<string, unknown>).__pendingRef; if (typeof pendingRef === "string") dispatch({ type: "REFERRAL_BONUS", ref: pendingRef }) }
+        const tg = (window as unknown as { Telegram?: { WebApp?: { ready?: () => void; expand?: () => void; initDataUnsafe?: { user?: { first_name?: string }; startParam?: string } } } }).Telegram?.WebApp
+        try {
+          tg?.ready?.()
+          tg?.expand?.()
+        } catch {}
+
+        await getGameUser()
+
+        // Link the real Telegram identity server-side (initData HMAC-validated
+        // in the database). initDataUnsafe is never used for identity.
+        const initData = telegramInitData()
+        if (initData) {
+          try {
+            await api.linkTelegram(initData)
+          } catch {}
+        }
+
+        const snap = await api.initState()
+        if (cancelled) return
+        patch({
+          hydrated: true,
+          profile: snap.profile,
+          resources: snap.resources,
+          buildings: snap.buildings,
+          completedStages: snap.completedStages,
+          stageStats: snap.stageStats,
+          answeredTrivia: snap.answeredTrivia,
+          unlockedAchievements: snap.unlockedAchievements,
+          syncStatus: "saved",
+        })
+
+        // Settle idle production accrued since the last visit.
+        try {
+          const claimed = await api.claimPassive()
+          if (!cancelled) applyServerResources(claimed.resources)
+        } catch {}
+
+        // Server-validated one-time referral attribution.
+        const tgStart = tg?.initDataUnsafe?.startParam
+        const urlParam = new URLSearchParams(window.location.search).get("startapp")
+        const code = (tgStart || urlParam || "").trim().toUpperCase()
+        if (code && !localStorage.getItem(REFERRAL_KEY)) {
+          try {
+            const r = await api.processReferral(code)
+            if (r.ok) {
+              localStorage.setItem(REFERRAL_KEY, "1")
+              applyServerResources(r.resources ?? {})
+            }
+          } catch {}
+        }
+      } catch {
+        if (!cancelled) markOffline()
+      }
     }
-    void hydrate(); return () => { cancelled = true }
-  }, [])
-  useEffect(() => { const timer = window.setInterval(() => { const now = Date.now(); dispatch({ type: "TICK", dt: (now - lastTick.current) / 1000 }); lastTick.current = now }, 1000); return () => clearInterval(timer) }, [])
-  useEffect(() => { if (state.hydrated) try { localStorage.setItem(STORAGE_KEY, JSON.stringify(persistable(state))) } catch {} }, [state])
-  useEffect(() => { stateRef.current = state }, [state])
+    void hydrate()
+    return () => {
+      cancelled = true
+    }
+  }, [patch, applyServerResources])
+
+  // ---- periodic reconciliation -------------------------------------------
   useEffect(() => {
-    if (!state.hydrated || !userId.current) return
-    const timer = window.setInterval(() => { const id = userId.current; if (id) void saveGameState(id, persistable(stateRef.current)).then(() => setSyncStatus("saved")).catch(() => setSyncStatus("offline")) }, 10000)
+    if (!state.hydrated || !supabase) return
+    const timer = window.setInterval(async () => {
+      try {
+        const claimed = await api.claimPassive()
+        applyServerResources(claimed.resources)
+        markSaved()
+      } catch {
+        markOffline()
+      }
+    }, 120_000)
+    return () => clearInterval(timer)
+  }, [state.hydrated, applyServerResources])
+
+  const rates = useMemo(() => computeRates(state.buildings), [state.buildings])
+  const displayedResources = useMemo(
+    () => ({
+      fighters: Math.floor(state.resources.fighters + state.localBonus.fighters),
+      provisions: Math.floor(state.resources.provisions + state.localBonus.provisions),
+      morale: Math.floor(state.resources.morale + state.localBonus.morale),
+    }),
+    [state.resources, state.localBonus],
+  )
+
+  // Local visual tick between authoritative settlements (display-only).
+  useEffect(() => {
+    if (!state.hydrated) return
+    const timer = window.setInterval(() => {
+      setState((s) => {
+        const r = computeRates(s.buildings)
+        return {
+          ...s,
+          localBonus: {
+            fighters: s.localBonus.fighters + r.fighters,
+            provisions: s.localBonus.provisions + r.provisions,
+            morale: s.localBonus.morale + r.morale,
+          },
+        }
+      })
+    }, 1000)
     return () => clearInterval(timer)
   }, [state.hydrated])
-  const event = useCallback((eventType: string, payload: Record<string, unknown> = {}) => { const id = userId.current; if (id) void trackGameEvent(id, eventType, payload).catch(() => undefined) }, [])
-  const setLang = useCallback((lang: Lang) => { dispatch({ type: "SET_LANG", lang }); event("language_changed", { lang }) }, [event])
-  const setName = useCallback((name: string) => dispatch({ type: "SET_NAME", name }), [])
-  const gather = useCallback((resource: ResourceKey) => { dispatch({ type: "GATHER", resource }); event("gathered", { resource }); audio.play("gather") }, [event])
-  const buyUpgrade = useCallback((id: string) => { dispatch({ type: "BUY_UPGRADE", id }); event("upgrade_attempted", { id }); audio.play("upgrade") }, [event])
-  const winBattle = useCallback((chapterId: number, formation: string) => { dispatch({ type: "WIN_BATTLE", chapterId }); event("battle_won", { chapterId, formation }) }, [event])
-  const loseBattle = useCallback((chapterId: number, formation: string) => { dispatch({ type: "LOSE_BATTLE" }); event("battle_lost", { chapterId, formation }) }, [event])
-  const triviaReward = useCallback((questionId: number) => { dispatch({ type: "TRIVIA_REWARD", questionId }); event("trivia_correct", { questionId }); audio.play("triviaCorrect") }, [event])
-  const toggleAudio = useCallback(() => { const muted = !state.audioMuted; dispatch({ type: "SET_AUDIO_MUTED", muted }); audio.setMuted(muted); event("audio_toggled", { muted }) }, [state.audioMuted, event])
-  const sniperHit = useCallback(() => { dispatch({ type: "SNIPER_HIT" }); event("sniper_hit") }, [event])
-  const sniperShot = useCallback(() => { dispatch({ type: "SNIPER_SHOT" }); event("sniper_shot") }, [event])
-  const unlockedBadges = useMemo(() => BADGES.filter((b) => state.completedChapters.includes(b.chapterRequired)).map((b) => b.id), [state.completedChapters])
-  const canAfford = useCallback((id: string) => { const def = UPGRADES.find((u) => u.id === id); return !!def && state.resources[def.costResource] >= upgradeCost(def, state.upgradeLevels[id] ?? 0) }, [state.resources, state.upgradeLevels])
-  const referralLink = `https://t.me/ermurrybot/ZemeneArbegnoch?startapp=ref_${telegramId.current}`
-  const sniperAccuracy = state.sniperShots > 0 ? Math.round((state.sniperHits / state.sniperShots) * 100) : 0
-  return <GameContext.Provider value={{ ...state, telegramId: telegramId.current, referralLink, syncStatus, setLang, setName, gather, buyUpgrade, winBattle, loseBattle, triviaReward, unlockedBadges, canAfford, toggleAudio, sniperHit, sniperShot, sniperAccuracy }}>{children}</GameContext.Provider>
+
+  // ---- actions -------------------------------------------------------------
+  const setLang = useCallback(
+    (lang: Lang) => {
+      patch({ lang })
+      try {
+        localStorage.setItem(LANG_KEY, lang)
+      } catch {}
+    },
+    [patch],
+  )
+
+  const toggleAudio = useCallback(() => {
+    const muted = !stateRef.current.audioMuted
+    patch({ audioMuted: muted })
+    audio.setMuted(muted)
+    try {
+      localStorage.setItem(AUDIO_KEY, String(muted))
+    } catch {}
+  }, [patch])
+
+  const gather = useCallback(
+    (resource: ResourceKey) => {
+      // Optimistic visual feedback, then reconcile with the server grant.
+      const gain = resource === "provisions" ? 3 : resource === "fighters" ? 1 : 2
+      setState((s) => ({
+        ...s,
+        localBonus: { ...s.localBonus, [resource]: s.localBonus[resource] + gain },
+      }))
+      audio.play("gather")
+      void api
+        .gather(resource)
+        .then((r) => applyServerResources(r.resources))
+        .catch(markOffline)
+    },
+    [applyServerResources],
+  )
+
+  const buyUpgrade = useCallback(
+    async (id: string) => {
+      try {
+        const r = await api.upgradeBuilding(id)
+        if (r.ok && r.resources) {
+          setState((s) => ({
+            ...s,
+            resources: r.resources!,
+            localBonus: { fighters: 0, provisions: 0, morale: 0 },
+            buildings: { ...s.buildings, [id]: r.level ?? (s.buildings[id] ?? 0) + 1 },
+          }))
+          audio.play("upgrade")
+        }
+      } catch {
+        markOffline()
+      }
+    },
+    [],
+  )
+
+  const canAfford = useCallback(
+    (id: string) => {
+      const def = UPGRADES.find((u) => u.id === id)
+      if (!def) return false
+      const level = state.buildings[id] ?? 0
+      const cost = Math.floor(def.baseCost * Math.pow(1.55, level))
+      return displayedResources[def.costResource] >= cost
+    },
+    [state.buildings, displayedResources],
+  )
+
+  const prepareBattle = useCallback(async (stageId: number): Promise<BattleSession> => {
+    const session = await api.startBattle(stageId)
+    return session
+  }, [])
+
+  const finishBattle = useCallback(
+    async (
+      sessionId: string,
+      actions: BattleAction[],
+      formation?: "shieldwall" | "scouts" | "rally",
+    ): Promise<BattleSummary> => {
+      const summary = await api.submitBattle(sessionId, actions, formation)
+      if (summary.ok) {
+        setState((s) => ({
+          ...s,
+          resources: summary.resources,
+          localBonus: { fighters: 0, provisions: 0, morale: 0 },
+          profile: { ...s.profile, totalScore: summary.totalScore },
+          // completedStages is refreshed authoritatively via initState() below.
+          unlockedAchievements:
+            summary.newBadges.length > 0
+              ? [...new Set([...s.unlockedAchievements, ...summary.newBadges])]
+              : s.unlockedAchievements,
+        }))
+        // Refresh campaign stats authoritatively after completion changes.
+        void api
+          .initState()
+          .then((snap) =>
+            setState((s) => ({
+              ...s,
+              completedStages: snap.completedStages,
+              stageStats: snap.stageStats,
+              profile: snap.profile,
+            })),
+          )
+          .catch(() => undefined)
+      }
+      return summary
+    },
+    [],
+  )
+
+  const answerTrivia = useCallback(
+    async (questionId: number, answerIndex: number) => {
+      const r = await api.submitTrivia(questionId, answerIndex)
+      if (r.rewarded && r.resources) {
+        setState((s) => ({
+          ...s,
+          resources: r.resources!,
+          localBonus: { fighters: 0, provisions: 0, morale: 0 },
+          answeredTrivia: [...new Set([...s.answeredTrivia, questionId])],
+          profile: { ...s.profile, totalScore: s.profile.totalScore + r.scoreGain },
+        }))
+        audio.play("triviaCorrect")
+      }
+      return { correct: r.correct, rewarded: r.rewarded }
+    },
+    [],
+  )
+
+  const refreshState = useCallback(async () => {
+    try {
+      const snap = await api.initState()
+      setState((s) => ({
+        ...s,
+        profile: snap.profile,
+        resources: snap.resources,
+        buildings: snap.buildings,
+        completedStages: snap.completedStages,
+        stageStats: snap.stageStats,
+        answeredTrivia: snap.answeredTrivia,
+        unlockedAchievements: snap.unlockedAchievements,
+        syncStatus: "saved",
+      }))
+    } catch {
+      markOffline()
+    }
+  }, [])
+
+  const referralLink = `https://t.me/ermurrybot/ZemeneArbegnoch?startapp=${state.profile.referralCode ?? ""}`
+
+  const value = useMemo<GameContextValue>(
+    () => ({
+      ...state,
+      displayedResources,
+      rates,
+      referralLink,
+      setLang,
+      toggleAudio,
+      gather,
+      buyUpgrade,
+      canAfford,
+      prepareBattle,
+      finishBattle,
+      answerTrivia,
+      refreshState,
+    }),
+    [
+      state,
+      displayedResources,
+      rates,
+      referralLink,
+      setLang,
+      toggleAudio,
+      gather,
+      buyUpgrade,
+      canAfford,
+      prepareBattle,
+      finishBattle,
+      answerTrivia,
+      refreshState,
+    ],
+  )
+
+  return <GameContext.Provider value={value}>{children}</GameContext.Provider>
 }
-export function useGame() { const context = useContext(GameContext); if (!context) throw new Error("useGame must be used within GameProvider"); return context }
+
+export function useGame() {
+  const ctx = useContext(GameContext)
+  if (!ctx) throw new Error("useGame must be used within GameProvider")
+  return ctx
+}

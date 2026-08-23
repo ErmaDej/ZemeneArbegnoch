@@ -2,15 +2,16 @@
 
 import { useEffect, useRef, useState } from "react"
 import { AnimatePresence, motion } from "framer-motion"
-import { Shield, Swords, Flag, Sparkles, X, Eye, Users } from "lucide-react"
+import { Shield, Swords, Flag, Sparkles, X, Eye, Users, Loader2 } from "lucide-react"
 import { audio } from "@/lib/audio"
 import { useParticleSystem } from "./particle-canvas"
 import { useGame } from "@/lib/game-context"
 import { t } from "@/lib/i18n"
 import { RESOURCE_META, fmt } from "@/lib/ui"
+import type { BattleSession, BattleSummary } from "@/lib/api"
 import type { ChapterDef, ResourceKey } from "@/lib/game-data"
 
-type Phase = "march" | "clash" | "result"
+type Phase = "march" | "clash" | "submitting" | "result"
 type Formation = "shieldwall" | "scouts" | "rally"
 
 const FORMATIONS: { id: Formation; label: string; detail: string; bonus: number; icon: typeof Shield }[] = [
@@ -19,92 +20,74 @@ const FORMATIONS: { id: Formation; label: string; detail: string; bonus: number;
   { id: "rally", label: "Rally", detail: "Morale-led charge", bonus: 1.1, icon: Users },
 ]
 
-// Player power is derived from standing forces + accumulated morale/provisions.
-export function computePlayerPower(resources: Record<ResourceKey, number>, cleared: number): number {
-  return Math.floor(
-    resources.fighters * 2 + resources.morale * 1.2 + resources.provisions * 0.15 + cleared * 25 + 30,
-  )
+interface BattleViewProps {
+  chapter: ChapterDef
+  session: BattleSession
+  onClose: () => void
 }
 
-export function BattleView({ chapter, onClose }: { chapter: ChapterDef; onClose: () => void }) {
+export function BattleView({ chapter, session, onClose }: BattleViewProps) {
   const game = useGame()
   const { lang } = game
-  const { winBattle, loseBattle } = game
-  const playerPower = computePlayerPower(game.resources, game.completedChapters.length)
-  const enemyPower = chapter.enemyPower
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const particles = useParticleSystem(canvasRef)
+
+  // Server-snapshotted power at battle start — display only, the server decides.
+  const playerPower = session.config.playerPower ?? 0
+  const enemyPower = session.config.enemyPower ?? chapter.enemyPower
 
   const [phase, setPhase] = useState<Phase>("march")
   const [playerHp, setPlayerHp] = useState(100)
   const [enemyHp, setEnemyHp] = useState(100)
-  const [won, setWon] = useState(false)
+  const [summary, setSummary] = useState<BattleSummary | null>(null)
   const [shake, setShake] = useState(0)
   const [formation, setFormation] = useState<Formation | null>(null)
   const [showClash, setShowClash] = useState(false)
-  const settled = useRef(false)
+  const settledRef = useRef(false)
 
-  // A choice has a visible effect before the abstract battle begins.
+  async function resolve(formed: Formation) {
+    if (settledRef.current) return
+    settledRef.current = true
+    setPhase("submitting")
+    try {
+      const result = await game.finishBattle(session.sessionId, [], formed)
+      setSummary(result)
+      setPhase("result")
+      audio.play(result.result === "victory" ? "victory" : "defeat", 0.3)
+    } catch {
+      setSummary(null)
+      setPhase("result")
+    }
+  }
+
+  // Animate the clash for a fixed duration, then settle via the server verdict.
   useEffect(() => {
-    if (!formation) return
-    const formationBonus = FORMATIONS.find((item) => item.id === formation)?.bonus ?? 1
-    const roll = 0.82 + Math.random() * 0.36 // 0.82 - 1.18
-    const effectivePlayer = playerPower * formationBonus * roll
-    const didWin = effectivePlayer >= enemyPower
-    const total = effectivePlayer + enemyPower
-    // Loser drops to ~0, winner keeps a residual proportional to margin.
-    const winnerResidual = Math.max(12, Math.min(70, Math.abs(effectivePlayer - enemyPower) / total * 140))
-
-    const marchT = setTimeout(() => {
-      setPhase("clash")
-      audio.play("whoosh", 0.15)
-    }, 1400)
+    if (!formation || phase !== "clash") return
+    audio.play("whoosh", 0.15)
 
     let ticks = 0
     const totalTicks = 42 // ~11s of clashing at 260ms
-    const clashInt = setTimeout(() => {
-      const interval = setInterval(() => {
-        ticks++
-        const p = ticks / totalTicks
-        setShake((s) => (s + 1) % 2)
-        if (ticks % 3 === 0) {
-          setShowClash(true)
-          setTimeout(() => setShowClash(false), 200)
-          audio.play("clash", 0.08)
-          particles.spawn({
-            x: 50,
-            y: 50,
-            count: 6,
-            type: "spark",
-            speed: 3,
-          })
-        }
-        if (didWin) {
-          setEnemyHp(Math.max(0, 100 - p * 100))
-          setPlayerHp(Math.max(winnerResidual, 100 - p * (100 - winnerResidual)))
-        } else {
-          setPlayerHp(Math.max(0, 100 - p * 100))
-          setEnemyHp(Math.max(winnerResidual, 100 - p * (100 - winnerResidual)))
-        }
-        if (ticks >= totalTicks) {
-          clearInterval(interval)
-          if (!settled.current) {
-            settled.current = true
-            setWon(didWin)
-            setPhase("result")
-            if (didWin) { winBattle(chapter.id, formation); audio.play("victory", 0.3) }
-            else { loseBattle(chapter.id, formation); audio.play("defeat", 0.3) }
-          }
-        }
-      }, 260)
-    }, 1400)
+    const interval = setInterval(() => {
+      ticks++
+      const p = ticks / totalTicks
+      setShake((s) => (s + 1) % 2)
+      if (ticks % 3 === 0) {
+        setShowClash(true)
+        setTimeout(() => setShowClash(false), 200)
+        audio.play("clash", 0.08)
+        particles.spawn({ x: 50, y: 50, count: 6, type: "spark", speed: 3 })
+      }
+      // Tension build-up only — no outcome is decided here.
+      setEnemyHp(Math.max(4, 100 - p * 96))
+      setPlayerHp(Math.max(4, 100 - p * 88))
+      if (ticks >= totalTicks && !settledRef.current) void resolve(formation)
+    }, 260)
 
-    return () => {
-      clearTimeout(marchT)
-      clearTimeout(clashInt)
-    }
+    return () => clearInterval(interval)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chapter.id, enemyPower, formation, loseBattle, playerPower, winBattle])
+  }, [formation, phase])
+
+  const won = summary?.result === "victory"
 
   return (
     <motion.div
@@ -148,36 +131,39 @@ export function BattleView({ chapter, onClose }: { chapter: ChapterDef; onClose:
               <div className="grid grid-cols-3 gap-2">
                 {FORMATIONS.map((item) => {
                   const Icon = item.icon
-                  return <motion.button
-                    key={item.id}
-                    type="button"
-                    onClick={() => { setFormation(item.id); audio.play("clash", 0.12) }}
-                    whileTap={{ scale: 0.94 }}
-                    className="rounded-xl border border-primary/30 bg-background/75 px-2 py-3 text-left hover:border-primary hover:bg-primary/10"
-                  >
-                    <Icon className="mb-1 size-4 text-victory" />
-                    <span className="block text-xs font-bold text-foreground">{item.label}</span>
-                    <span className="block text-[10px] text-muted-foreground">+{Math.round((item.bonus - 1) * 100)}% power</span>
-                  </motion.button>
+                  return (
+                    <motion.button
+                      key={item.id}
+                      type="button"
+                      onClick={() => {
+                        setFormation(item.id)
+                        setPhase("clash")
+                        audio.play("clash", 0.12)
+                      }}
+                      whileTap={{ scale: 0.94 }}
+                      className="rounded-xl border border-primary/30 bg-background/75 px-2 py-3 text-left hover:border-primary hover:bg-primary/10"
+                    >
+                      <Icon className="mb-1 size-4 text-victory" />
+                      <span className="block text-xs font-bold text-foreground">{item.label}</span>
+                      <span className="block text-[10px] text-muted-foreground">+{Math.round((item.bonus - 1) * 100)}% power</span>
+                    </motion.button>
+                  )
                 })}
               </div>
             </div>
           )}
+
           {/* HP bars */}
-          <div className="relative mt-4 flex items-center gap-3 px-4">
-            <HpBar label={t(lang, "yourForce")} hp={playerHp} tone="victory" align="left" />
-            <HpBar label={t(lang, "enemyForce")} hp={enemyHp} tone="ember" align="right" />
-          </div>
+          {(phase === "clash" || phase === "submitting") && (
+            <div className="relative mt-4 flex items-center gap-3 px-4">
+              <HpBar label={t(lang, "yourForce")} hp={playerHp} tone="victory" align="left" />
+              <HpBar label={t(lang, "enemyForce")} hp={enemyHp} tone="ember" align="right" />
+            </div>
+          )}
 
           {/* Formations clashing */}
           <div className="relative mt-8 flex h-40 items-center justify-between px-6">
-            <Formation
-              side="player"
-              phase={phase}
-              shake={shake}
-              icon={<Shield className="size-9 text-victory" />}
-              banner="text-victory"
-            />
+            <FormationSprite side="player" phase={phase} shake={shake} icon={<Shield className="size-9 text-victory" />} banner="text-victory" />
             <AnimatePresence>
               {phase !== "march" && (
                 <motion.div
@@ -201,13 +187,7 @@ export function BattleView({ chapter, onClose }: { chapter: ChapterDef; onClose:
                 </motion.div>
               )}
             </AnimatePresence>
-            <Formation
-              side="enemy"
-              phase={phase}
-              shake={shake}
-              icon={<Flag className="size-9 text-ember" />}
-              banner="text-ember"
-            />
+            <FormationSprite side="enemy" phase={phase} shake={shake} icon={<Flag className="size-9 text-ember" />} banner="text-ember" />
           </div>
 
           {/* Power readout */}
@@ -215,41 +195,31 @@ export function BattleView({ chapter, onClose }: { chapter: ChapterDef; onClose:
             <span className="text-victory">PWR {fmt(playerPower)}</span>
             <span className="text-ember">{fmt(enemyPower)} PWR</span>
           </div>
+
+          {phase === "submitting" && (
+            <div className="absolute inset-x-0 bottom-6 flex items-center justify-center gap-2 text-xs text-muted-foreground">
+              <Loader2 className="size-4 animate-spin" /> {t(lang, "validating")}
+            </div>
+          )}
         </div>
 
         {/* Result / blurb tray */}
         <div className="relative border-t border-primary/20 bg-card/95 p-4">
           <AnimatePresence mode="wait">
-            {phase !== "result" ? (
-              <motion.p
-                key="blurb"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className={`text-pretty text-center text-sm text-muted-foreground ${lang === "am" ? "font-ethiopic" : ""}`}
-              >
-                {lang === "am" ? chapter.blurbAm : chapter.blurbEn}
-              </motion.p>
-            ) : (
-              <motion.div
-                key="result"
-                initial={{ opacity: 0, y: 12 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="flex flex-col items-center gap-3"
-              >
-                <h3
-                  className={`text-glow-gold font-serif text-2xl font-extrabold ${
-                    won ? "text-victory" : "text-ember"
-                  }`}
-                >
+            {phase === "result" && summary ? (
+              <motion.div key="result" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col items-center gap-3">
+                <h3 className={`text-glow-gold font-serif text-2xl font-extrabold ${won ? "text-victory" : "text-ember"}`}>
                   {won ? t(lang, "battle_won") : t(lang, "battle_lost")}
                 </h3>
-                {won && (
+                {summary.firstCompletion && won && (
+                  <span className="rounded-full bg-primary/15 px-3 py-1 text-[11px] font-bold text-primary">{t(lang, "first_clear")}</span>
+                )}
+                {won && Object.keys(summary.rewards).length > 0 && (
                   <div className="flex flex-wrap items-center justify-center gap-2">
                     <span className="flex items-center gap-1 text-xs text-muted-foreground">
                       <Sparkles className="size-3.5 text-primary" /> {t(lang, "rewards")}:
                     </span>
-                    {Object.entries(chapter.reward).map(([k, v]) => {
+                    {Object.entries(summary.rewards).map(([k, v]) => {
                       const meta = RESOURCE_META[k as ResourceKey]
                       const Icon = meta.icon
                       return (
@@ -257,12 +227,15 @@ export function BattleView({ chapter, onClose }: { chapter: ChapterDef; onClose:
                           key={k}
                           className="flex items-center gap-1 rounded-full bg-background px-2 py-1 font-mono text-xs font-semibold text-foreground"
                         >
-                          <Icon className={`size-3.5 ${meta.color}`} /> +{v}
+                          <Icon className={`size-3.5 ${meta.color}`} /> +{String(v)}
                         </span>
                       )
                     })}
                   </div>
                 )}
+                <span className="font-mono text-[11px] text-muted-foreground">
+                  🏆 +{summary.scoreGain} · 🎯 {summary.accuracy}% {t(lang, "accuracy")}
+                </span>
                 <button
                   type="button"
                   onClick={onClose}
@@ -275,6 +248,23 @@ export function BattleView({ chapter, onClose }: { chapter: ChapterDef; onClose:
                   {won ? t(lang, "continue") : t(lang, "retry")}
                 </button>
               </motion.div>
+            ) : phase === "result" ? (
+              <motion.div key="error" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col items-center gap-3">
+                <p className="text-sm text-ember">{t(lang, "submit_failed")}</p>
+                <button type="button" onClick={onClose} className="w-full rounded-xl bg-secondary py-3 text-sm font-bold text-secondary-foreground">
+                  {t(lang, "close")}
+                </button>
+              </motion.div>
+            ) : (
+              <motion.p
+                key="blurb"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className={`text-pretty text-center text-sm text-muted-foreground ${lang === "am" ? "font-ethiopic" : ""}`}
+              >
+                {lang === "am" ? chapter.blurbAm : chapter.blurbEn}
+              </motion.p>
             )}
           </AnimatePresence>
         </div>
@@ -308,7 +298,7 @@ function HpBar({
   )
 }
 
-function Formation({
+function FormationSprite({
   side,
   phase,
   shake,

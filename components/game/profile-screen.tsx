@@ -21,8 +21,6 @@ export function ProfileScreen() {
   const game = useGame()
   const { lang } = game
   const [copied, setCopied] = useState(false)
-  const [editing, setEditing] = useState(false)
-  const [nameDraft, setNameDraft] = useState(game.displayName)
 
   async function copyLink() {
     try {
@@ -33,11 +31,21 @@ export function ProfileScreen() {
     setTimeout(() => setCopied(false), 1800)
   }
 
+  const winRate =
+    game.profile.lifetimeBattles > 0
+      ? Math.round((game.profile.lifetimeWins / game.profile.lifetimeBattles) * 100)
+      : 0
+
   const stats: { icon: LucideIcon; label: string; value: string; sub?: string }[] = [
-    { icon: Swords, label: t(lang, "stat_chapters"), value: `${game.completedChapters.length}/8` },
-    { icon: Trophy, label: t(lang, "stat_battles"), value: String(game.battlesFought) },
-    { icon: Star, label: t(lang, "stat_score"), value: String(game.score) },
-    { icon: Target, label: t(lang, "stat_accuracy"), value: game.sniperAccuracy > 0 ? `${game.sniperAccuracy}%` : "—", sub: `${game.sniperHits} ${t(lang, "enemies_eliminated")}` },
+    { icon: Swords, label: t(lang, "stat_chapters"), value: `${game.completedStages.length}/${BADGES.length}` },
+    { icon: Trophy, label: t(lang, "stat_battles"), value: String(game.profile.lifetimeBattles) },
+    { icon: Star, label: t(lang, "stat_score"), value: String(game.profile.totalScore) },
+    {
+      icon: Target,
+      label: t(lang, "stat_accuracy"),
+      value: game.profile.bestAccuracy > 0 ? `${game.profile.bestAccuracy}%` : "—",
+      sub: `🔥 ×${game.profile.bestCombo} ${t(lang, "best_combo")}`,
+    },
   ]
 
   return (
@@ -46,42 +54,18 @@ export function ProfileScreen() {
       <section className="mb-5 flex items-center gap-3 rounded-2xl border border-primary/25 bg-card/60 bg-parchment-grain p-4">
         <div className="grid size-16 shrink-0 place-items-center rounded-full border-2 border-primary bg-primary/15">
           <span className="font-serif text-2xl font-bold text-primary">
-            {game.displayName.charAt(0).toUpperCase()}
+            {game.profile.displayName.charAt(0).toUpperCase()}
           </span>
         </div>
         <div className="min-w-0 flex-1">
-          {editing ? (
-            <input
-              autoFocus
-              value={nameDraft}
-              onChange={(e) => setNameDraft(e.target.value)}
-              onBlur={() => {
-                game.setName(nameDraft.trim())
-                setEditing(false)
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.nativeEvent.isComposing) {
-                  game.setName(nameDraft.trim())
-                  setEditing(false)
-                }
-              }}
-              maxLength={20}
-              className="w-full rounded-lg border border-primary/40 bg-background px-2 py-1 text-lg font-bold text-foreground outline-none"
-            />
-          ) : (
-            <button
-              type="button"
-              onClick={() => {
-                setNameDraft(game.displayName)
-                setEditing(true)
-              }}
-              className="truncate font-serif text-xl font-bold text-foreground"
-            >
-              {game.displayName}
-            </button>
-          )}
-          <p className="text-xs text-muted-foreground">
-            {game.unlockedBadges.length} / {BADGES.length} {t(lang, "profile_badges")}
+          <p className="truncate font-serif text-xl font-bold text-foreground">{game.profile.displayName}</p>
+          <div className="mt-1 flex items-center gap-2 text-[11px] text-muted-foreground">
+            <span className="rounded bg-primary/15 px-1.5 py-0.5 font-bold text-primary">Lv. {game.profile.level}</span>
+            <span>XP {game.profile.xp}</span>
+          </div>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            🏅 {game.unlockedAchievements.length} / {BADGES.length} {t(lang, "profile_badges")} · ⚔️ {winRate}%{" "}
+            {t(lang, "win_rate")}
           </p>
         </div>
       </section>
@@ -95,12 +79,12 @@ export function ProfileScreen() {
           {stats.map((s) => {
             const Icon = s.icon
             return (
-             <div key={s.label} className="rounded-xl border border-border bg-card/60 p-3 text-center">
-                 <Icon className="mx-auto mb-1 size-4 text-primary" aria-hidden />
-                 <div className="font-mono text-lg font-bold text-foreground">{s.value}</div>
-                 <div className="text-[10px] leading-tight text-muted-foreground">{s.label}</div>
-                 {s.sub && <div className="text-[8px] leading-tight text-muted-foreground/60">{s.sub}</div>}
-               </div>
+              <div key={s.label} className="rounded-xl border border-border bg-card/60 p-3 text-center">
+                <Icon className="mx-auto mb-1 size-4 text-primary" aria-hidden />
+                <div className="font-mono text-lg font-bold text-foreground">{s.value}</div>
+                <div className="text-[10px] leading-tight text-muted-foreground">{s.label}</div>
+                {s.sub && <div className="text-[8px] leading-tight text-muted-foreground/60">{s.sub}</div>}
+              </div>
             )
           })}
         </div>
@@ -113,7 +97,7 @@ export function ProfileScreen() {
         </h2>
         <div className="grid grid-cols-3 gap-2.5">
           {BADGES.map((b) => {
-            const unlocked = game.unlockedBadges.includes(b.id)
+            const unlocked = game.unlockedAchievements.includes(b.id)
             const Icon = EMBLEM_ICON[b.emblem] ?? Star
             return (
               <motion.div
@@ -160,12 +144,13 @@ export function ProfileScreen() {
           </p>
           <div className="flex items-center gap-2">
             <code className="min-w-0 flex-1 truncate rounded-lg bg-background px-2.5 py-2 font-mono text-[11px] text-foreground/80">
-              {game.referralLink}
+              {game.profile.referralCode ? game.referralLink : t(lang, "loading")}
             </code>
             <button
               type="button"
+              disabled={!game.profile.referralCode}
               onClick={copyLink}
-              className="flex shrink-0 items-center gap-1 rounded-lg bg-primary px-3 py-2 text-xs font-bold text-primary-foreground hover:bg-primary/85"
+              className="flex shrink-0 items-center gap-1 rounded-lg bg-primary px-3 py-2 text-xs font-bold text-primary-foreground hover:bg-primary/85 disabled:opacity-50"
             >
               {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
               {copied ? t(lang, "referral_copied") : t(lang, "referral_copy")}
