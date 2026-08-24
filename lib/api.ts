@@ -100,11 +100,92 @@ export interface LeaderRow {
   player_rank: number
 }
 
+export class ApiError extends Error {
+  constructor(
+    public code: string,
+    public statusCode?: number,
+    message?: string,
+  ) {
+    super(message || code)
+    this.name = "ApiError"
+  }
+}
+
+/**
+ * Retry helper with exponential backoff.
+ * Used for transient network failures (connection errors, timeouts).
+ * Does NOT retry on permanent errors (404, 403, validation errors).
+ */
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  maxAttempts: number = 3,
+  initialDelayMs: number = 500,
+): Promise<T> {
+  let lastError: Error | null = null
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      return await fn()
+    } catch (err) {
+      const error: Error = err instanceof Error ? err : new Error(String(err))
+      lastError = error
+
+      // Don't retry on known permanent errors
+      if (err instanceof Error) {
+        const msg = err.message?.toLowerCase() || ""
+        // 404: RPC function not deployed; 403: auth issue; 400: bad request
+        if (msg.includes("404") || msg.includes("not found") || msg.includes("403") || msg.includes("400")) {
+          throw err
+        }
+      }
+
+      // Last attempt: throw immediately
+      if (attempt === maxAttempts - 1) break
+
+      // Exponential backoff with jitter
+      const delayMs = initialDelayMs * Math.pow(2, attempt) + Math.random() * 100
+      await new Promise((resolve) => setTimeout(resolve, delayMs))
+    }
+  }
+
+  throw lastError || new Error("Max retry attempts exceeded")
+}
+
 async function rpc<T>(fn: string, args: Record<string, unknown> = {}): Promise<T> {
-  if (!supabase) throw new Error("supabase_unavailable")
-  const { data, error } = await supabase.rpc(fn, args)
-  if (error) throw error
-  return data as T
+  if (!supabase) throw new ApiError("supabase_unavailable", undefined, "Supabase client not initialized")
+
+  return withRetry(async () => {
+    const { data, error } = await supabase!.rpc(fn, args)
+
+    if (error) {
+      console.error(`[RPC ${fn}] Error:`, error)
+      // Check for deployment issues
+      if (
+        error.message?.includes("not found") ||
+        error.message?.includes("404") ||
+        error.message?.includes("does not exist")
+      ) {
+        throw new ApiError(
+          "rpc_not_deployed",
+          404,
+          `RPC function '${fn}' not found. Database migrations may not be deployed. See DEPLOYMENT-SETUP.md`,
+        )
+      }
+
+      // Network/connection errors
+      if (
+        error.message?.includes("Failed to fetch") ||
+        error.message?.includes("timeout") ||
+        error.message?.includes("net::")
+      ) {
+        throw new ApiError("network_error", undefined, "Network connection failed. Please check your internet.")
+      }
+
+      throw new ApiError("rpc_error", undefined, error.message)
+    }
+
+    return data as T
+  })
 }
 
 export const api = {

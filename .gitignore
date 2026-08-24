@@ -6,8 +6,11 @@ __v0_jsx-dev-runtime.ts
 .v0-trash/
 .vercel/
 
-# Environment variables
-.env*.local
+# Environment variables (NEVER commit .env files with secrets)
+.env
+.env.local
+.env.*.local
+.env.production.local
 
 # Common ignores
 node_modules
@@ -15,7 +18,3 @@ node_modules
 tsconfig.tsbuildinfo
 .DS_Store
 TentIssues/
-
-# Environment variables
-.env
-.env.*

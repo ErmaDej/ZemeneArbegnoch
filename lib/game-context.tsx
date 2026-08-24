@@ -13,7 +13,7 @@ import {
 import { UPGRADES, type ResourceKey, type Resources } from "./game-data"
 import type { Lang } from "./i18n"
 import { getGameUser, supabase, telegramInitData } from "./supabase"
-import { api, type BattleAction, type BattleSession, type BattleSummary, type PlayerProfile, type StageStat } from "./api"
+import { api, ApiError, type BattleAction, type BattleSession, type BattleSummary, type PlayerProfile, type StageStat } from "./api"
 import { audio } from "./audio"
 
 export interface GameState {
@@ -135,7 +135,13 @@ export function GameProvider({ children }: { children: ReactNode }) {
           tg?.expand?.()
         } catch {}
 
-        await getGameUser()
+        try {
+          await getGameUser()
+        } catch (err) {
+          console.error("[GameProvider] Anonymous auth failed:", err)
+          patch({ syncStatus: "offline" })
+          return
+        }
 
         // Link the real Telegram identity server-side (initData HMAC-validated
         // in the database). initDataUnsafe is never used for identity.

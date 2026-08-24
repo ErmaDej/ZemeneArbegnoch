@@ -11,12 +11,32 @@ const key = process.env.NEXT_PUBLIC_ANON_KEY
 export const supabase: SupabaseClient | null = url && key ? createClient(url, key) : null
 
 export async function getGameUser(): Promise<string | null> {
-  if (!supabase) return null
-  const { data: existing } = await supabase.auth.getUser()
-  if (existing.user) return existing.user.id
+  if (!supabase) {
+    console.error("[getGameUser] Supabase client not initialized")
+    return null
+  }
+  
+  const { data: existing, error: userError } = await supabase.auth.getUser()
+  if (userError) {
+    console.warn("[getGameUser] getUser error:", userError.message)
+  }
+  
+  if (existing.user) {
+    console.log("[getGameUser] Found existing session:", existing.user.id)
+    return existing.user.id
+  }
+  
+  console.log("[getGameUser] No existing session, signing in anonymously...")
   const { data, error } = await supabase.auth.signInAnonymously()
-  if (error) throw error
-  return data.user?.id ?? null
+  
+  if (error) {
+    console.error("[getGameUser] Anonymous auth failed:", error)
+    throw error
+  }
+  
+  const uid = data.user?.id ?? null
+  console.log("[getGameUser] Anonymous auth success:", uid)
+  return uid
 }
 
 export function telegramInitData(): string | null {
