@@ -260,6 +260,9 @@ create or replace function public.game_gather(p_resource text, p_player_uuid uui
 returns jsonb language plpgsql security definer set search_path = public as $$
 declare
   v_uid uuid := coalesce(p_player_uuid, auth.uid());
+  v_gain numeric;
+  v_res public.player_resources;
+  v_recent int;
 begin
   perform private_game.ensure_player_rows(p_player_uuid);
   if p_resource not in ('fighters','provisions','morale') then
