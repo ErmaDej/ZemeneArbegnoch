@@ -135,12 +135,13 @@ export function GameProvider({ children }: { children: ReactNode }) {
           tg?.expand?.()
         } catch {}
 
+        // Best-effort only: gameplay identity flows through the player UUID
+        // passed to every RPC, so an anonymous-auth failure must never block
+        // the game from launching (e.g. provider disabled, offline token refresh).
         try {
           await getGameUser()
         } catch (err) {
-          console.error("[GameProvider] Anonymous auth failed:", err)
-          patch({ syncStatus: "offline" })
-          return
+          console.warn("[GameProvider] Supabase anonymous auth unavailable, continuing:", err)
         }
 
         // Link the real Telegram identity server-side (initData HMAC-validated

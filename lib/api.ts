@@ -188,52 +188,83 @@ async function rpc<T>(fn: string, args: Record<string, unknown> = {}): Promise<T
   })
 }
 
+// Import the supabase functions for getting player UUID
+import { getPlayerUUID } from "./supabase"
+
 export const api = {
-  initState: () => rpc<GameStatePayload>("game_init_state"),
+  initState: async () => {
+    const playerUUID = await getPlayerUUID()
+    return rpc<GameStatePayload>("game_init_state", { p_player_uuid: playerUUID })
+  },
 
-  linkTelegram: (initData: string) =>
-    rpc<{ linked: boolean; reason?: string; telegramId?: string }>("game_link_telegram", {
+  linkTelegram: async (initData: string) => {
+    const playerUUID = await getPlayerUUID()
+    return rpc<{ linked: boolean; reason?: string; telegramId?: string }>("game_link_telegram", {
       p_init_data: initData,
-    }),
+      p_player_uuid: playerUUID
+    })
+  },
 
-  gather: (resource: "fighters" | "provisions" | "morale") =>
-    rpc<{ gained: number; resourceType: string; resources: ServerResources }>("game_gather", {
+  gather: async (resource: "fighters" | "provisions" | "morale") => {
+    const playerUUID = await getPlayerUUID()
+    return rpc<{ gained: number; resourceType: string; resources: ServerResources }>("game_gather", {
       p_resource: resource,
-    }),
+      p_player_uuid: playerUUID
+    })
+  },
 
-  upgradeBuilding: (buildingKey: string) =>
-    rpc<{ ok: boolean; level?: number; resources?: ServerResources; reason?: string }>(
+  upgradeBuilding: async (buildingKey: string) => {
+    const playerUUID = await getPlayerUUID()
+    return rpc<{ ok: boolean; level?: number; resources?: ServerResources; reason?: string }>(
       "game_upgrade_building",
-      { p_building_key: buildingKey },
-    ),
+      { p_building_key: buildingKey, p_player_uuid: playerUUID }
+    )
+  },
 
-  claimPassive: () =>
-    rpc<{ claimedSeconds: number; resources: ServerResources }>("game_claim_passive"),
+  claimPassive: async () => {
+    const playerUUID = await getPlayerUUID()
+    return rpc<{ claimedSeconds: number; resources: ServerResources }>("game_claim_passive", {
+      p_player_uuid: playerUUID
+    })
+  },
 
-  startBattle: (stageId: number) => rpc<BattleSession>("game_start_battle", { p_stage_id: stageId }),
+  startBattle: async (stageId: number) => {
+    const playerUUID = await getPlayerUUID()
+    return rpc<BattleSession>("game_start_battle", { p_stage_id: stageId, p_player_uuid: playerUUID })
+  },
 
-  submitBattle: (
+  submitBattle: async (
     sessionId: string,
     actions: BattleAction[],
     formation?: "shieldwall" | "scouts" | "rally",
-  ) =>
-    rpc<BattleSummary>("game_submit_battle", {
+  ) => {
+    const playerUUID = await getPlayerUUID()
+    return rpc<BattleSummary>("game_submit_battle", {
       p_session_id: sessionId,
       p_actions: actions,
       p_formation: formation ?? null,
-    }),
+      p_player_uuid: playerUUID
+    })
+  },
 
-  submitTrivia: (questionId: number, answerIndex: number) =>
-    rpc<{ correct: boolean; rewarded: boolean; scoreGain: number; resources?: ServerResources }>(
+  submitTrivia: async (questionId: number, answerIndex: number) => {
+    const playerUUID = await getPlayerUUID()
+    return rpc<{ correct: boolean; rewarded: boolean; scoreGain: number; resources?: ServerResources }>(
       "game_submit_trivia",
-      { p_question_id: questionId, p_answer_index: answerIndex },
-    ),
+      { p_question_id: questionId, p_answer_index: answerIndex, p_player_uuid: playerUUID }
+    )
+  },
 
-  processReferral: (code: string) =>
-    rpc<{ ok: boolean; reason?: string; resources?: ServerResources }>("game_process_referral", {
+  processReferral: async (code: string) => {
+    const playerUUID = await getPlayerUUID()
+    return rpc<{ ok: boolean; reason?: string; resources?: ServerResources }>("game_process_referral", {
       p_referral_code: code,
-    }),
+      p_player_uuid: playerUUID
+    })
+  },
 
-  leaderboard: (kind: "global" | "friends") =>
-    rpc<LeaderRow[]>("game_get_leaderboard", { p_kind: kind }),
+  leaderboard: async (kind: "global" | "friends") => {
+    const playerUUID = await getPlayerUUID()
+    return rpc<LeaderRow[]>("game_get_leaderboard", { p_kind: kind, p_player_uuid: playerUUID })
+  }
 }
