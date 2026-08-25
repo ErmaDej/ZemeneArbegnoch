@@ -8,7 +8,31 @@ const key = process.env.NEXT_PUBLIC_ANON_KEY
 // Anonymous-auth client. All sensitive game mutations flow through
 // server-side RPCs (see lib/api.ts + the production migration); this anon key
 // grants nothing beyond RLS-scoped reads and RPC execution.
-export const supabase: SupabaseClient | null = url && key ? createClient(url, key) : null
+//
+// Sessions are deliberately NOT persisted: gameplay identity travels via the
+// player UUID passed to every RPC, so a Supabase auth session adds no value
+// here — and stale/auto-issued JWTs can 401 every call (e.g. PGRST303
+// "JWT issued at future" when the auth service clock skews ahead of PostgREST).
+// With persistSession off, requests always carry the plain anon key.
+export const supabase: SupabaseClient | null =
+  url && key
+    ? createClient(url, key, {
+        auth: { persistSession: false, autoRefreshToken: false },
+      })
+    : null
+
+// One-time cleanup of legacy persisted sessions (anonymous sign-ins from older
+// builds). Best-effort; failures are harmless.
+if (typeof window !== "undefined") {
+  try {
+    const stale: string[] = []
+    for (let i = 0; i < window.localStorage.length; i++) {
+      const k = window.localStorage.key(i)
+      if (k && k.startsWith("sb-") && k.endsWith("-auth-token")) stale.push(k)
+    }
+    stale.forEach((k) => window.localStorage.removeItem(k))
+  } catch {}
+}
 
 // ---------------------------------------------------------------------------
 // PLAYER IDENTITY
@@ -195,25 +219,6 @@ export function getPlayerUUID(): Promise<string> {
     })
   }
   return identityPromise
-}
-
-/**
- * Best-effort Supabase anonymous session (used for RLS-scoped direct reads).
- * NOT required for gameplay anymore — every game RPC receives the player UUID
- * explicitly and runs as security definer server-side.
- */
-export async function getGameUser(): Promise<string | null> {
-  if (!supabase) {
-    console.warn("[getGameUser] Supabase client not initialized")
-    return null
-  }
-
-  const { data: existing, error: userError } = await supabase.auth.getUser()
-  if (!userError && existing.user) return existing.user.id
-
-  const { data, error } = await supabase.auth.signInAnonymously()
-  if (error) throw error
-  return data.user?.id ?? null
 }
 
 export function telegramInitData(): string | null {

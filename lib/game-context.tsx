@@ -12,7 +12,7 @@ import {
 } from "react"
 import { UPGRADES, type ResourceKey, type Resources } from "./game-data"
 import type { Lang } from "./i18n"
-import { getGameUser, supabase, telegramInitData } from "./supabase"
+import { supabase, telegramInitData } from "./supabase"
 import { api, ApiError, type BattleAction, type BattleSession, type BattleSummary, type PlayerProfile, type StageStat } from "./api"
 import { audio } from "./audio"
 
@@ -135,14 +135,8 @@ export function GameProvider({ children }: { children: ReactNode }) {
           tg?.expand?.()
         } catch {}
 
-        // Best-effort only: gameplay identity flows through the player UUID
-        // passed to every RPC, so an anonymous-auth failure must never block
-        // the game from launching (e.g. provider disabled, offline token refresh).
-        try {
-          await getGameUser()
-        } catch (err) {
-          console.warn("[GameProvider] Supabase anonymous auth unavailable, continuing:", err)
-        }
+        // Gameplay identity flows through the player UUID passed to every RPC
+        // (see lib/supabase.ts) — no Supabase auth session is required.
 
         // Link the real Telegram identity server-side (initData HMAC-validated
         // in the database). initDataUnsafe is never used for identity.

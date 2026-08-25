@@ -11,6 +11,7 @@ import type { BattleSession } from "@/lib/api"
 import { BattleView } from "./battle-view"
 import { SniperBattle } from "./sniper-battle"
 import { TriviaModal } from "./trivia-modal"
+import { ErrorBoundary } from "./error-boundary"
 
 export function CampaignScreen() {
   const game = useGame()
@@ -171,22 +172,26 @@ export function CampaignScreen() {
       <AnimatePresence>
         {battle &&
           (battle.session.battleType === "sniper" ? (
-            <SniperBattle
-              key="sniper"
-              chapter={battle.chapter}
-              session={battle.session}
-              onClose={() => handleBattleClosed(battle.chapter.id)}
-            />
+            <ErrorBoundary key="sniper-boundary" lang={lang} onDismiss={() => setBattle(null)}>
+              <SniperBattle
+                chapter={battle.chapter}
+                session={battle.session}
+                onClose={() => handleBattleClosed(battle.chapter.id)}
+              />
+            </ErrorBoundary>
           ) : (
-            <BattleView
-              key="battle"
-              chapter={battle.chapter}
-              session={battle.session}
-              onClose={() => handleBattleClosed(battle.chapter.id)}
-            />
+            <ErrorBoundary key="battle-boundary" lang={lang} onDismiss={() => setBattle(null)}>
+              <BattleView
+                chapter={battle.chapter}
+                session={battle.session}
+                onClose={() => handleBattleClosed(battle.chapter.id)}
+              />
+            </ErrorBoundary>
           ))}
         {triviaQuestion && (
-          <TriviaModal key="trivia" question={triviaQuestion} onClose={() => setTriviaId(null)} />
+          <ErrorBoundary key="trivia-boundary" lang={lang} onDismiss={() => setTriviaId(null)}>
+            <TriviaModal question={triviaQuestion} onClose={() => setTriviaId(null)} />
+          </ErrorBoundary>
         )}
       </AnimatePresence>
     </div>

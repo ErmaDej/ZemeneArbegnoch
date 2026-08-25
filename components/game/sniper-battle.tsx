@@ -34,9 +34,17 @@ export function SniperBattle({ chapter, session, onClose }: SniperBattleProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const particles = useParticleSystem(canvasRef)
 
+  // Defensive session shape: a malformed payload must degrade to a playable
+  // (or at least visible) state, never crash-mount a blank overlay.
+  const safeTargets: BattleTarget[] = Array.isArray(session.targets) ? session.targets : []
+  const durationMs =
+    typeof session.durationMs === "number" && Number.isFinite(session.durationMs) && session.durationMs > 0
+      ? session.durationMs
+      : 30000
+
   const [phase, setPhase] = useState<Phase>('deploy')
   const [targets, setTargets] = useState<LiveTarget[]>(
-    () => session.targets.map((tg) => ({ ...tg, status: 'pending' })),
+    () => safeTargets.map((tg) => ({ ...tg, status: 'pending' })),
   )
   const [crosshair, setCrosshair] = useState({ x: 50, y: 50 })
   const [elapsed, setElapsed] = useState(0)
@@ -55,8 +63,10 @@ export function SniperBattle({ chapter, session, onClose }: SniperBattleProps) {
   const comboRef = useRef<{ count: number; lastHitAt: number }>({ count: 0, lastHitAt: -99999 })
   const hitIdsRef = useRef<Set<string>>(new Set())
   const endedRef = useRef(false)
-
-  const durationMs = session.durationMs ?? 30000
+  const comboWindowMs =
+    typeof session.config?.comboWindowMs === "number" && Number.isFinite(session.config.comboWindowMs)
+      ? session.config.comboWindowMs
+      : 1500
 
   const finish = useCallback(async () => {
     if (endedRef.current) return
@@ -103,14 +113,14 @@ export function SniperBattle({ chapter, session, onClose }: SniperBattleProps) {
       )
 
       if (endedRef.current) return
-      const liveRemain = session.targets.some(
+      const liveRemain = safeTargets.some(
         (tg) => nowMs < tg.spawnMs + tg.lifetimeMs && !hitIdsRef.current.has(tg.id),
       )
       if (!liveRemain || !anyLive || nowMs >= durationMs) void finish()
     }, TICK_MS)
 
     return () => clearInterval(timer)
-  }, [phase, durationMs, finish, session.targets])
+  }, [phase, durationMs, finish, safeTargets])
 
   const getPercent = (clientX: number, clientY: number, rect: DOMRect) => ({
     x: ((clientX - rect.left) / rect.width) * 100,
@@ -154,7 +164,7 @@ export function SniperBattle({ chapter, session, onClose }: SniperBattleProps) {
 
     // Local optimistic feedback — the server remains authoritative.
     hitIdsRef.current.add(victim.id)
-    if (nowMs - comboRef.current.lastHitAt <= (session.config.comboWindowMs ?? 1500)) {
+    if (nowMs - comboRef.current.lastHitAt <= comboWindowMs) {
       comboRef.current.count += 1
     } else {
       comboRef.current.count = 1
@@ -266,7 +276,7 @@ export function SniperBattle({ chapter, session, onClose }: SniperBattleProps) {
               <p className="max-w-xs text-center text-xs text-muted-foreground">{t(lang, 'sniper_desc')}</p>
               <div className="flex items-center gap-3 rounded-lg border border-primary/25 px-3 py-1.5 text-[11px] text-muted-foreground">
                 <span>⏱ {(durationMs / 1000).toFixed(0)}s</span>
-                <span>🎯 {session.targets.length}</span>
+                <span>🎯 {safeTargets.length}</span>
                 <span>🏆 {chapter.scoreReward}</span>
               </div>
             </div>

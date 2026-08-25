@@ -88,6 +88,7 @@ export const translations = {
     lb_empty: "እስካሁን ተዋጊዎች የሉም። የመጀመሪያው አርበኛ ይሁኑ!",
     you: "እርስዎ",
     win_rate: "የድል መጠን",
+    unexpected_error: "ያልተጠበቀ ስህተት ተከስቷል። እንደገና ይሞክሩ።",
   },
   en: {
     appTitle: "Zemene Arbegnoch",
@@ -165,6 +166,7 @@ export const translations = {
     lb_empty: "No patriots ranked yet. Be the first!",
     you: "You",
     win_rate: "win rate",
+    unexpected_error: "Something unexpected happened. Please retry.",
   },
 } as const
 
