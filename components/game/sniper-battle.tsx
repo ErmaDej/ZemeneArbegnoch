@@ -215,7 +215,7 @@ export function SniperBattle({ chapter, session, onClose }: SniperBattleProps) {
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/80"
     >
-      <div className="relative flex w-full max-w-md flex-col overflow-hidden rounded-2xl border border-primary/40 bg-[#1a1e32]">
+      <div className="relative flex h-full w-full max-w-md flex-col overflow-hidden rounded-2xl border border-primary/40 bg-[#1a1e32]">
         {/* particle overlay */}
         <canvas ref={canvasRef} className="pointer-events-none absolute inset-0 z-20 h-full w-full" />
 
