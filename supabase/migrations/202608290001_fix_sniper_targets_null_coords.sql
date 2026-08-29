@@ -63,8 +63,8 @@ begin
     v_lane_idx := v_order[1];
     v_targets := v_targets || jsonb_build_object(
       'id', 't' || (v_i + 1),
-      'x', (v_lanes #> array[v_lane_idx::text, '0'])::int,
-      'y', (v_lanes #> array[v_lane_idx::text, '1'])::int,
+      'x', (v_lanes #> array[v_lane_idx::text, '0'])::text::int,
+      'y', (v_lanes #> array[v_lane_idx::text, '1'])::text::int,
       'spawnMs', v_spawn_ms,
       'lifetimeMs', v_lifetime,
       'tier', v_tier,
