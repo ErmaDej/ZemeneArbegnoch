@@ -35,7 +35,19 @@ export function SniperBattle({ chapter, session, onClose }: SniperBattleProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const particles = useParticleSystem(canvasRef)
 
-  const safeTargets: BattleTarget[] = Array.isArray(session.targets) ? session.targets : []
+  const safeTargets: BattleTarget[] = (Array.isArray(session.targets) ? session.targets : []).map((tg, i) => {
+    // Fallback coordinates for targets with null x/y (server-side JSONB bug)
+    const FALLBACK_POSITIONS = [
+      {x:18,y:28},{x:48,y:42},{x:82,y:32},{x:26,y:62},{x:74,y:58},
+      {x:50,y:18},{x:34,y:76},{x:66,y:70},{x:24,y:46},{x:78,y:48},
+      {x:40,y:50},{x:60,y:35},{x:30,y:40},{x:70,y:55},{x:50,y:65},
+    ]
+    if (tg.x == null || tg.y == null) {
+      const fb = FALLBACK_POSITIONS[i % FALLBACK_POSITIONS.length]
+      return { ...tg, x: fb.x, y: fb.y }
+    }
+    return tg
+  })
   const durationMs =
     typeof session.durationMs === 'number' && Number.isFinite(session.durationMs) && session.durationMs > 0
       ? session.durationMs

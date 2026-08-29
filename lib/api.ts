@@ -158,7 +158,13 @@ async function rpc<T>(fn: string, args: Record<string, unknown> = {}): Promise<T
     const { data, error } = await supabase!.rpc(fn, args)
 
     if (error) {
-      console.error(`[RPC ${fn}] Error:`, error)
+      // Non-critical RPCs log as warnings to avoid Next.js dev overlay noise.
+      const isCritical = !fn.startsWith('game_claim_')
+      if (isCritical) {
+        console.error(`[RPC ${fn}] Error:`, error)
+      } else {
+        console.warn(`[RPC ${fn}] Error:`, error)
+      }
       // Check for deployment issues
       if (
         error.message?.includes("not found") ||
