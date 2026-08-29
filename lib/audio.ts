@@ -19,6 +19,12 @@ type SFXName =
   | "timeWarning"
   | "tabSwitch"
   | "referralCopy"
+  | "heavyShot"
+  | "bulletWhiz"
+  | "enemyGrunt"
+  | "ambientBattle"
+  | "impactThud"
+  | "killConfirm"
 
 interface AudioManager {
   init: () => void
@@ -183,6 +189,52 @@ const sfxGenerators: Record<SFXName, (sr: number) => number[]> = {
   timeWarning: (sr) => combine(squareWave(660, 0.12, sr), squareWave(523, 0.12, sr)),
   tabSwitch: (sr) => squareWave(523, 0.05, sr),
   referralCopy: (sr) => arpeggio([780, 880, 988], 0.24, sr),
+  // ── Combat variety sounds ──────────────────────────────────────────────
+  heavyShot: (sr) => {
+    // Deep bass crack + noise burst — heavier than sniperShot
+    const crack = combine(noise(0.06, sr), squareWave(120, 0.12, sr))
+    const boom = sineWave(60, 0.18, sr)
+    return combine(crack, boom)
+  },
+  bulletWhiz: (sr) => {
+    // High-pitched descending whiz — miss indicator
+    const TAU = Math.PI * 2
+    const samples: number[] = []
+    const len = Math.floor(0.12 * sr)
+    for (let i = 0; i < len; i++) {
+      const t = i / sr
+      const freq = 2000 - t * 12000
+      samples[i] = Math.sin(TAU * Math.max(freq, 200) * t) * 0.08 * Math.pow(1 - t / 0.12, 1.5)
+    }
+    return samples
+  },
+  enemyGrunt: (sr) => {
+    // Low guttural "ugh" on elimination
+    const fundamental = sineWave(110, 0.2, sr)
+    const over = sineWave(165, 0.15, sr)
+    const noiseBurst = noise(0.08, sr)
+    return combine(combine(fundamental, over), noiseBurst)
+  },
+  ambientBattle: (sr) => {
+    // Distant rumble + wind — looping ambient
+    const rumble = sineWave(35, 1.5, sr)
+    const wind = noise(1.5, sr)
+    const distant = sineWave(55, 1.0, sr)
+    return combine(combine(rumble, wind), distant)
+  },
+  impactThud: (sr) => {
+    // Physical impact — fist/body hit
+    const thud = sineWave(80, 0.1, sr)
+    const crack = noise(0.04, sr)
+    return combine(thud, crack)
+  },
+  killConfirm: (sr) => {
+    // Satisfying double-tone kill confirmation
+    const first = sineWave(440, 0.08, sr)
+    const second = sineWave(660, 0.12, sr)
+    const delay = new Array(Math.floor(0.06 * sr)).fill(0)
+    return [...delay, ...combine(first, second), ...sineWave(880, 0.15, sr)]
+  },
 }
 
 function getBuffer(name: SFXName): AudioBuffer | null {

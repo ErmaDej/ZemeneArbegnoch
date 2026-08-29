@@ -89,6 +89,12 @@ export const translations = {
     you: "እርስዎ",
     win_rate: "የድል መጠን",
     unexpected_error: "ያልተጠበቀ ስህተት ተከስቷል። እንደገና ይሞክሩ።",
+    // Formation rally
+    rally_cta: "አሁን አነሳ",
+    rally_hint: "ተከታታይ ለማቆየት በጊዜ ይንኩ",
+    rally_streak: "ተከታታይ",
+    count_in_sub: "ቦታዎን ይያዙ",
+    choose_formation: "መ沧略 ይምረጡ",
   },
   en: {
     appTitle: "Zemene Arbegnoch",
@@ -167,6 +173,12 @@ export const translations = {
     you: "You",
     win_rate: "win rate",
     unexpected_error: "Something unexpected happened. Please retry.",
+    // Formation rally
+    rally_cta: "Rally now",
+    rally_hint: "Tap in time to keep the streak",
+    rally_streak: "streak",
+    count_in_sub: "Take positions",
+    choose_formation: "Choose your formation",
   },
 } as const
 

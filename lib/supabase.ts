@@ -67,12 +67,21 @@ function getWebApp(): TgWebApp | null {
  * WebViews inject `window.Telegram` slightly after first paint; polling beats
  * racing. Resolves with whatever is available after the timeout so browser
  * sessions are not delayed.
+ *
+ * In a plain browser (no Telegram) we resolve immediately with null so the
+ * session-UUID path is taken without any unnecessary delay.
  */
 function waitForTelegramUser(timeoutMs = 3000): Promise<TgWebApp | null> {
   return new Promise((resolve) => {
     const immediate = getWebApp()
     if (immediate?.initDataUnsafe?.user?.id) {
       resolve(immediate)
+      return
+    }
+    // If there is no Telegram WebApp object at all, we are in a plain browser
+    // — resolve immediately so the session-UUID identity kicks in without delay.
+    if (typeof window !== 'undefined' && !window.hasOwnProperty('Telegram')) {
+      resolve(null)
       return
     }
     const startedAt = Date.now()
@@ -197,6 +206,10 @@ function sessionPlayerUUID(): string {
  * Resolve the player UUID for the current session:
  * - Telegram: deterministic SHA-256 UUID of the Telegram user id (cached).
  * - Browser: per-session temporary UUID.
+ *
+ * The promise is cached so repeated calls are cheap. If it rejects (unlikely),
+ * a fresh session UUID is returned synchronously so the game never gets stuck
+ * on a null identity.
  */
 let identityPromise: Promise<string> | null = null
 
@@ -214,11 +227,23 @@ export function getPlayerUUID(): Promise<string> {
       console.info("[identity] web-session player (temporary)", uuid)
       return uuid
     })().catch((err) => {
+      console.warn("[identity] async resolution failed, falling back to session UUID", err)
       identityPromise = null
-      throw err
+      // Return a synchronous fallback so callers are never left hanging.
+      return sessionPlayerUUID()
     })
   }
   return identityPromise
+}
+
+/**
+ * Synchronous accessor for the current session UUID. Use this only when the
+ * async path is unavailable (e.g. top-level init before React mounts).
+ * For gameplay calls prefer the async getPlayerUUID() which may resolve to
+ * a Telegram-derived identity.
+ */
+export function getSessionUUID(): string {
+  return sessionPlayerUUID()
 }
 
 export function telegramInitData(): string | null {

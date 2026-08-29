@@ -107,7 +107,7 @@ export function LeaderboardScreen() {
             const mine = p.name === game.profile.displayName && p.score === game.profile.totalScore
             return (
               <motion.li
-                key={p.player_id}
+                key={p.player_id || `row-${i}`}
                 initial={{ opacity: 0, x: -8 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: Math.min(i * 0.015, 0.3) }}
