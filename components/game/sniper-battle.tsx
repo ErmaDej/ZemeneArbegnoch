@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { motion, AnimatePresence } from 'framer-motion'
 import { ShieldIcon, Loader2 } from 'lucide-react'
@@ -35,19 +35,20 @@ export function SniperBattle({ chapter, session, onClose }: SniperBattleProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const particles = useParticleSystem(canvasRef)
 
-  const safeTargets: BattleTarget[] = (Array.isArray(session.targets) ? session.targets : []).map((tg, i) => {
-    // Fallback coordinates for targets with null x/y (server-side JSONB bug)
+  const safeTargets: BattleTarget[] = useMemo(() => {
     const FALLBACK_POSITIONS = [
       {x:18,y:28},{x:48,y:42},{x:82,y:32},{x:26,y:62},{x:74,y:58},
       {x:50,y:18},{x:34,y:76},{x:66,y:70},{x:24,y:46},{x:78,y:48},
       {x:40,y:50},{x:60,y:35},{x:30,y:40},{x:70,y:55},{x:50,y:65},
     ]
-    if (tg.x == null || tg.y == null) {
-      const fb = FALLBACK_POSITIONS[i % FALLBACK_POSITIONS.length]
-      return { ...tg, x: fb.x, y: fb.y }
-    }
-    return tg
-  })
+    return (Array.isArray(session.targets) ? session.targets : []).map((tg, i) => {
+      if (tg.x == null || tg.y == null) {
+        const fb = FALLBACK_POSITIONS[i % FALLBACK_POSITIONS.length]
+        return { ...tg, x: fb.x, y: fb.y }
+      }
+      return tg
+    })
+  }, [session.targets])
   const durationMs =
     typeof session.durationMs === 'number' && Number.isFinite(session.durationMs) && session.durationMs > 0
       ? session.durationMs
@@ -121,12 +122,11 @@ export function SniperBattle({ chapter, session, onClose }: SniperBattleProps) {
       const nowMs = performance.now() - started
       setElapsed(nowMs)
 
-      let anyLive = false
+      // Update target statuses (popping → active → expired).
       setTargets((prev) =>
         prev.map((tg) => {
           if (tg.status === 'hit' || tg.status === 'expired') return tg
           if (nowMs >= tg.spawnMs + tg.lifetimeMs) return { ...tg, status: 'expired' }
-          anyLive = true
           if (nowMs >= tg.spawnMs && tg.status === 'pending') return { ...tg, status: 'popping' }
           if (nowMs >= tg.spawnMs + POP_MS && tg.status === 'popping') return { ...tg, status: 'active' }
           return tg
@@ -134,10 +134,11 @@ export function SniperBattle({ chapter, session, onClose }: SniperBattleProps) {
       )
 
       if (endedRef.current) return
+      // Check if any targets remain unhit and unexpired (using safeTargets, not batched state).
       const liveRemain = safeTargets.some(
         (tg) => nowMs < tg.spawnMs + tg.lifetimeMs && !hitIdsRef.current.has(tg.id),
       )
-      if (!liveRemain || !anyLive || nowMs >= durationMs) void finish()
+      if (!liveRemain || nowMs >= durationMs) void finish()
     }, TICK_MS)
 
     return () => clearInterval(timer)
