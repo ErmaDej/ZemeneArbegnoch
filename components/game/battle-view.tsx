@@ -1,15 +1,16 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
+
 import { AnimatePresence, motion } from "framer-motion"
-import { Swords, Sparkles, X, Eye, Users, Loader2 } from "lucide-react"
+import { Swords, Eye, Users, Loader2 } from "lucide-react"
 import { audio } from "@/lib/audio"
 import { useParticleSystem } from "./particle-canvas"
 import { useGame } from "@/lib/game-context"
 import { t } from "@/lib/i18n"
-import { RESOURCE_META, fmt } from "@/lib/ui"
 import type { BattleAction, BattleSession, BattleSummary } from "@/lib/api"
 import type { ChapterDef, ResourceKey } from "@/lib/game-data"
+import { RESOURCE_META, fmt } from "@/lib/ui"
 
 type Phase = "march" | "countIn" | "combat" | "submitting" | "result"
 type Formation = "shieldwall" | "scouts" | "rally"
@@ -261,13 +262,10 @@ export function BattleView({ chapter, session, onClose }: BattleViewProps) {
   const won = summary?.result === "victory"
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: 20 }}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-background/95 backdrop-blur"
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80"
     >
-      <div className="relative flex w-full max-w-md flex-col overflow-hidden rounded-2xl border border-primary/30 bg-background/80">
+      <div className="relative flex w-full max-w-md flex-col overflow-hidden rounded-2xl border border-primary/40" style={{ backgroundColor: '#1a1e32' }}>
         <canvas ref={canvasRef} className="pointer-events-none absolute inset-0 z-20 h-full w-full" />
 
         {/* Screen flash on shot */}
@@ -283,7 +281,7 @@ export function BattleView({ chapter, session, onClose }: BattleViewProps) {
           } ${
             screenShake === "heavy" ? "animate-screen-shake-heavy" : screenShake === "light" ? "animate-screen-shake" : ""
           }`}
-          onPointerDown={fire}
+          onPointerDown={phase === "combat" ? fire : undefined}
         >
           {/* Parallax battlefield layers */}
           <div className="absolute inset-0 parallax-sky" />
@@ -342,7 +340,15 @@ export function BattleView({ chapter, session, onClose }: BattleViewProps) {
 
           {/* Deploy briefing */}
           {phase === "march" && (
-            <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-background/90 px-6">
+            <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 px-6" style={{ backgroundColor: 'rgba(26,30,50,0.95)' }}>
+              <button
+                type="button"
+                onClick={onClose}
+                className="absolute right-3 top-3 z-20 grid size-8 place-items-center rounded-full bg-background/60 text-muted-foreground hover:text-foreground"
+                aria-label={t(lang, "close")}
+              >
+                ✕
+              </button>
               <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="rounded-full bg-ember/20 p-6">
                 <Swords className="size-12 text-primary" />
               </motion.div>
@@ -382,7 +388,7 @@ export function BattleView({ chapter, session, onClose }: BattleViewProps) {
 
           {/* Count-in: 3 → 2 → 1 */}
           {phase === "countIn" && (
-            <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-2 bg-background/85">
+            <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-2" style={{ backgroundColor: 'rgba(26,30,50,0.9)' }}>
               <AnimatePresence mode="popLayout">
                 {countIn > 0 && (
                   <motion.h2
@@ -405,7 +411,7 @@ export function BattleView({ chapter, session, onClose }: BattleViewProps) {
 
           {/* Submitting */}
           {phase === "submitting" && (
-            <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-3 bg-background/90">
+            <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-3" style={{ backgroundColor: 'rgba(26,30,50,0.95)' }}>
               <Loader2 className="size-8 animate-spin text-primary" />
               <p className="text-xs text-muted-foreground">{t(lang, "validating")}</p>
             </div>
@@ -413,7 +419,7 @@ export function BattleView({ chapter, session, onClose }: BattleViewProps) {
 
           {/* Result */}
           {phase === "result" && summary && (
-            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-background/92 px-6">
+            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 px-6" style={{ backgroundColor: 'rgba(26,30,50,0.95)' }}>
               <motion.h3
                 className={`font-serif text-3xl font-extrabold ${won ? "text-victory" : "text-ember"}`}
                 initial={{ scale: 0.5 }}
@@ -468,7 +474,7 @@ export function BattleView({ chapter, session, onClose }: BattleViewProps) {
 
           {/* Result error */}
           {phase === "result" && submitError && (
-            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-background/92 px-6">
+            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 px-6" style={{ backgroundColor: 'rgba(26,30,50,0.95)' }}>
               <p className="text-center text-sm text-ember">{t(lang, "submit_failed")}</p>
               <div className="flex gap-2">
                 <button
@@ -572,7 +578,7 @@ export function BattleView({ chapter, session, onClose }: BattleViewProps) {
           </div>
         )}
       </div>
-    </motion.div>
+    </div>
   )
 }
 

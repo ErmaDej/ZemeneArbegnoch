@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+
 import { motion, AnimatePresence } from 'framer-motion'
 import { ShieldIcon, Loader2 } from 'lucide-react'
 import { audio } from '@/lib/audio'
@@ -55,9 +56,9 @@ export function SniperBattle({ chapter, session, onClose }: SniperBattleProps) {
   const [damageNumbers, setDamageNumbers] = useState<Array<{ id: number; x: number; y: number; text: string }>>([])
   const [muzzle, setMuzzle] = useState<{ x: number; y: number; id: number } | null>(null)
   const [screenFlash, setScreenFlash] = useState(false)
-  const [screenShake, setScreenShake] = useState<"none" | "light" | "heavy">("none")
   const [summary, setSummary] = useState<BattleSummary | null>(null)
   const [submitError, setSubmitError] = useState(false)
+  const [screenShake, setScreenShake] = useState<'none' | 'light' | 'heavy'>('none')
 
   const startRef = useRef<number>(0)
   const actionsRef = useRef<BattleAction[]>([])
@@ -155,6 +156,7 @@ export function SniperBattle({ chapter, session, onClose }: SniperBattleProps) {
     setTimeout(() => setMuzzle((m) => (m?.id === id ? null : m)), 140)
     setScreenFlash(true)
     setTimeout(() => setScreenFlash(false), 60)
+    // Light shake on every shot
     setScreenShake('light')
     setTimeout(() => setScreenShake('none'), 300)
 
@@ -195,21 +197,14 @@ export function SniperBattle({ chapter, session, onClose }: SniperBattleProps) {
     setTargets((prev) => prev.map((tg) => (tg.id === victim.id ? { ...tg, status: 'hit' } : tg)))
     particles.spawn({ x: pt.x, y: pt.y, count: 12, type: 'hit', spread: 1, speed: 5 })
     particles.spawn({ x: pt.x, y: pt.y, count: 6, type: 'spark', spread: 0.8, speed: 3 })
-    // Kill confirm on last enemy
-    const remainingLive = safeTargets.filter((t) => !hitIdsRef.current.has(t.id) && t.id !== victim.id).length
-    if (remainingLive === 0) {
-      audio.play('killConfirm', 0.35)
-      audio.play('enemyGrunt', 0.25)
-      setScreenShake('heavy')
-      setTimeout(() => setScreenShake('none'), 450)
-    } else {
-      audio.play('impactThud', 0.18)
-    }
     const dmgId = Date.now() + Math.random()
     setDamageNumbers((dn) => [...dn, { id: dmgId, x: pt.x, y: pt.y, text: `+${gained}` }])
     setTimeout(() => setDamageNumbers((dn) => dn.filter((d) => d.id !== dmgId)), 900)
 
     if (c > 0 && c % 5 === 0) audio.play('hitConfirm', 0.22)
+    // Heavy shake on hit
+    setScreenShake('heavy')
+    setTimeout(() => setScreenShake('none'), 450)
   }
 
   const accuracy = shots > 0 ? Math.round((hits / shots) * 100) : 0
@@ -217,13 +212,10 @@ export function SniperBattle({ chapter, session, onClose }: SniperBattleProps) {
   const liveTargets = targets.filter((tg) => tg.status === 'active' || tg.status === 'popping')
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: 20 }}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-background/95 backdrop-blur"
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80"
     >
-      <div className="relative flex w-full max-w-md flex-col overflow-hidden rounded-2xl border border-primary/30 bg-background/80">
+      <div className="relative flex w-full max-w-md flex-col overflow-hidden rounded-2xl border border-primary/40 bg-[#1a1e32]">
         {/* particle overlay */}
         <canvas ref={canvasRef} className="pointer-events-none absolute inset-0 z-20 h-full w-full" />
 
@@ -234,9 +226,7 @@ export function SniperBattle({ chapter, session, onClose }: SniperBattleProps) {
 
         {/* main arena */}
         <div
-          className={`relative h-[360px] w-full flex-1 overflow-hidden ${
-            phase === 'combat' ? 'cursor-crosshair touch-none' : ''
-          } ${
+          className={`relative h-[360px] w-full flex-1 overflow-hidden ${phase === 'combat' ? 'cursor-crosshair touch-none' : ''} ${
             screenShake === 'heavy' ? 'animate-screen-shake-heavy' : screenShake === 'light' ? 'animate-screen-shake' : ''
           }`}
           onPointerMove={handlePointer}
@@ -255,6 +245,15 @@ export function SniperBattle({ chapter, session, onClose }: SniperBattleProps) {
               backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(255,255,255,0.1) 2px, rgba(255,255,255,0.1) 4px)',
             }}
           />
+
+          {/* Ambient smoke particles */}
+          {phase === 'combat' && (
+            <>
+              <div className="pointer-events-none absolute left-[10%] bottom-[20%] h-8 w-16 rounded-full bg-amber-900/20 blur-sm animate-smoke-drift" />
+              <div className="pointer-events-none absolute left-[60%] bottom-[15%] h-6 w-12 rounded-full bg-stone-700/20 blur-sm animate-smoke-drift" style={{ animationDelay: '1.5s' }} />
+              <div className="pointer-events-none absolute left-[35%] bottom-[25%] h-10 w-20 rounded-full bg-amber-800/15 blur-sm animate-smoke-drift" style={{ animationDelay: '3s' }} />
+            </>
+          )}
 
           {/* live targets */}
           {phase === 'combat' &&
@@ -337,7 +336,7 @@ export function SniperBattle({ chapter, session, onClose }: SniperBattleProps) {
 
           {/* deploy briefing */}
           {phase === 'deploy' && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-background/90 px-6">
+            <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-[#1a1e32]/95 px-6">
               <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="rounded-full bg-ember/20 p-6">
                 <ShieldIcon className="size-12 text-amber-400" />
               </motion.div>
@@ -378,7 +377,7 @@ export function SniperBattle({ chapter, session, onClose }: SniperBattleProps) {
 
           {/* submitting */}
           {phase === 'submitting' && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-background/90">
+            <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-3 bg-[#1a1e32]/95">
               <Loader2 className="size-8 animate-spin text-primary" />
               <p className="text-xs text-muted-foreground">{t(lang, 'validating')}</p>
             </div>
@@ -386,7 +385,7 @@ export function SniperBattle({ chapter, session, onClose }: SniperBattleProps) {
 
           {/* result */}
           {phase === 'result' && summary && (
-            <div className="absolute inset-0 flex animate-fade flex-col items-center justify-center gap-3 bg-background/92 px-6">
+            <div className="absolute inset-0 z-20 flex animate-fade flex-col items-center justify-center gap-3 bg-[#1a1e32]/95 px-6">
               <motion.h3
                 className={`font-serif text-3xl font-extrabold ${summary.result === 'victory' ? 'text-victory' : 'text-ember'}`}
                 initial={{ scale: 0.5 }}
@@ -437,7 +436,7 @@ export function SniperBattle({ chapter, session, onClose }: SniperBattleProps) {
           )}
 
           {phase === 'result' && submitError && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-background/92 px-6">
+            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-[#1a1e32]/95 px-6">
               <p className="text-center text-sm text-ember">{t(lang, 'submit_failed')}</p>
               <div className="flex gap-2">
                 <button
@@ -499,7 +498,7 @@ export function SniperBattle({ chapter, session, onClose }: SniperBattleProps) {
           </div>
         )}
       </div>
-    </motion.div>
+    </div>
   )
 }
 
