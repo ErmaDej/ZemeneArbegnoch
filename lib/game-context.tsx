@@ -322,7 +322,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
           profile: { ...s.profile, totalScore: summary.totalScore },
           // completedStages is refreshed authoritatively via initState() below.
           unlockedAchievements:
-            summary.newBadges.length > 0
+            (summary.newBadges ?? []).length > 0
               ? [...new Set([...s.unlockedAchievements, ...summary.newBadges])]
               : s.unlockedAchievements,
         }))

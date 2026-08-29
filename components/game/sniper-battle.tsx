@@ -411,7 +411,7 @@ export function SniperBattle({ chapter, session, onClose }: SniperBattleProps) {
                   {summary.hits}/{summary.shots}
                 </span>
               </div>
-              {summary.result === 'victory' && Object.keys(summary.rewards).length > 0 && (
+              {summary.result === 'victory' && summary.rewards && Object.keys(summary.rewards).length > 0 && (
                 <div className="flex flex-wrap items-center justify-center gap-1.5">
                   {Object.entries(summary.rewards).map(([k, v]) => (
                     <span key={k} className="rounded-full bg-victory/15 px-2 py-0.5 font-mono text-[11px] font-bold text-victory">
@@ -420,7 +420,7 @@ export function SniperBattle({ chapter, session, onClose }: SniperBattleProps) {
                   ))}
                 </div>
               )}
-              {summary.newBadges.length > 0 && (
+              {(summary.newBadges ?? []).length > 0 && (
                 <span className="text-[11px] font-semibold text-amber-400">
                   &#127942; {t(lang, 'new_badge')}
                 </span>

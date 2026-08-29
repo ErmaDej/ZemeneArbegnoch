@@ -457,7 +457,7 @@ export function BattleView({ chapter, session, onClose }: BattleViewProps) {
                   ))}
                 </div>
               )}
-              {summary.newBadges.length > 0 && (
+              {(summary.newBadges ?? []).length > 0 && (
                 <span className="text-[11px] font-semibold text-amber-400">
                   🏅 {t(lang, "new_badge")}
                 </span>
