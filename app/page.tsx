@@ -11,6 +11,7 @@ import { LeaderboardScreen } from "@/components/game/leaderboard-screen"
 import { ProfileScreen } from "@/components/game/profile-screen"
 import { BottomNav, type Screen } from "@/components/game/bottom-nav"
 
+
 export default function Page() {
   return (
     <GameProvider>
@@ -31,9 +32,9 @@ function Game() {
           <AnimatePresence mode="wait">
             <motion.div
               key={screen}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
               transition={{ duration: 0.2 }}
             >
               {screen === "camp" && <CampScreen />}
