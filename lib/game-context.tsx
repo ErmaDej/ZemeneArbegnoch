@@ -14,6 +14,7 @@ import { UPGRADES, type ResourceKey, type Resources } from "./game-data"
 import type { Lang } from "./i18n"
 import { supabase, telegramInitData } from "./supabase"
 import { api, ApiError, type BattleAction, type BattleSession, type BattleSummary, type PlayerProfile, type StageStat } from "./api"
+import { createLocalSession, createLocalSummary, storeOfflineCompletion } from "./local-battle"
 import { audio } from "./audio"
 
 export interface GameState {
@@ -181,7 +182,15 @@ export function GameProvider({ children }: { children: ReactNode }) {
           } catch {}
         }
       } catch {
-        if (!cancelled) markOffline()
+        // Server unreachable — hydrate with default resources so the game
+        // is immediately playable offline.
+        if (!cancelled) {
+          setState((s) => ({
+            ...s,
+            hydrated: true,
+            syncStatus: "offline",
+          }))
+        }
       }
     }
     void hydrate()
@@ -303,8 +312,15 @@ export function GameProvider({ children }: { children: ReactNode }) {
   )
 
   const prepareBattle = useCallback(async (stageId: number): Promise<BattleSession> => {
-    const session = await api.startBattle(stageId)
-    return session
+    try {
+      const session = await api.startBattle(stageId)
+      return session
+    } catch {
+      // Server unreachable — generate a local battle session
+      const local = createLocalSession(stageId)
+      if (local) return local
+      throw new Error("Failed to start battle")
+    }
   }, [])
 
   const finishBattle = useCallback(
@@ -313,20 +329,52 @@ export function GameProvider({ children }: { children: ReactNode }) {
       actions: BattleAction[],
       formation?: "shieldwall" | "scouts" | "rally",
     ): Promise<BattleSummary> => {
-      const summary = await api.submitBattle(sessionId, actions, formation)
+      // Try server first; fall back to local evaluation
+      let summary: BattleSummary
+      try {
+        summary = await api.submitBattle(sessionId, actions, formation)
+      } catch {
+        // Local fallback — evaluate hits/shots from actions array
+        const hits = actions.filter((a) => a.x >= 0 && a.y >= 0).length
+        const shots = actions.length
+        const bestCombo = (() => {
+          let max = 0, streak = 0
+          for (const a of actions) {
+            if (a.x >= 0 && a.y >= 0) { streak++; max = Math.max(max, streak) } else { streak = 0 }
+          }
+          return max
+        })()
+        const local = createLocalSummary(
+          // Extract stageId from sessionId pattern local_<stageId>_<ts>
+          parseInt(sessionId.split("_")[1] || "0", 10),
+          hits, shots, bestCombo, stateRef.current.resources,
+        )
+        if (!local) throw new Error("Failed to submit battle")
+        summary = local
+      }
+
       if (summary.ok) {
         setState((s) => ({
           ...s,
           resources: summary.resources,
           localBonus: { fighters: 0, provisions: 0, morale: 0 },
-          profile: { ...s.profile, totalScore: summary.totalScore },
-          // completedStages is refreshed authoritatively via initState() below.
+          profile: { ...s.profile, totalScore: summary.totalScore || s.profile.totalScore + summary.scoreGain },
           unlockedAchievements:
             (summary.newBadges ?? []).length > 0
               ? [...new Set([...s.unlockedAchievements, ...summary.newBadges])]
               : s.unlockedAchievements,
+          completedStages: s.completedStages.includes(summary.ok ? parseInt(sessionId.split("_")[1] || "0", 10) : 0)
+            ? s.completedStages
+            : summary.result === "victory"
+              ? [...s.completedStages, parseInt(sessionId.split("_")[1] || "0", 10)]
+              : s.completedStages,
         }))
-        // Refresh campaign stats authoritatively after completion changes.
+        // Store offline completion for future sync
+        storeOfflineCompletion(
+          parseInt(sessionId.split("_")[1] || "0", 10),
+          summary.score, summary.accuracy,
+        )
+        // Try refreshing from server (may fail if offline)
         void api
           .initState()
           .then((snap) =>

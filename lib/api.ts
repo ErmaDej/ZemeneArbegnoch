@@ -158,12 +158,18 @@ async function rpc<T>(fn: string, args: Record<string, unknown> = {}): Promise<T
     const { data, error } = await supabase!.rpc(fn, args)
 
     if (error) {
-      // Non-critical RPCs log as warnings to avoid Next.js dev overlay noise.
-      const isCritical = !fn.startsWith('game_claim_')
-      if (isCritical) {
-        console.error(`[RPC ${fn}] Error:`, error)
-      } else {
+      // Network errors are transient — always warn (never error) to avoid
+      // triggering the Next.js dev overlay for infrastructure outages.
+      const isNetwork = error.message?.includes("Failed to fetch") ||
+        error.message?.includes("timeout") ||
+        error.message?.includes("net::") ||
+        error.message?.includes("ERR_NAME_NOT_RESOLVED") ||
+        false
+      const isNonCritical = isNetwork || fn.startsWith('game_claim_')
+      if (isNonCritical) {
         console.warn(`[RPC ${fn}] Error:`, error)
+      } else {
+        console.error(`[RPC ${fn}] Error:`, error)
       }
       // Check for deployment issues
       if (
