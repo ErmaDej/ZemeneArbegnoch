@@ -130,11 +130,24 @@ async function withRetry<T>(
       const error: Error = err instanceof Error ? err : new Error(String(err))
       lastError = error
 
-      // Don't retry on known permanent errors
+      // Don't retry on known permanent errors — they won't succeed on retry.
       if (err instanceof Error) {
         const msg = err.message?.toLowerCase() || ""
         // 404: RPC function not deployed; 403: auth issue; 400: bad request
         if (msg.includes("404") || msg.includes("not found") || msg.includes("403") || msg.includes("400")) {
+          throw err
+        }
+        // Permanent network failures — DNS resolution, connection refused,
+        // fetch aborted. These won't recover on retry so fail fast.
+        if (
+          msg.includes("err_name_not_resolved") ||
+          msg.includes("err_connection_refused") ||
+          msg.includes("err_connection_closed") ||
+          msg.includes("err_connection_reset") ||
+          msg.includes("failed to fetch") ||
+          msg.includes("networkerror") ||
+          msg.includes("supabase_unavailable")
+        ) {
           throw err
         }
       }
