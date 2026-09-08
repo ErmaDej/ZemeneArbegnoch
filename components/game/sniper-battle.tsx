@@ -72,23 +72,34 @@ export function SniperBattle({ chapter, session, onClose }: SniperBattleProps) {
   const [summary, setSummary] = useState<BattleSummary | null>(null)
   const [submitError, setSubmitError] = useState(false)
   const [screenShake, setScreenShake] = useState<'none' | 'light' | 'heavy'>('none')
+  const [playerHp, setPlayerHp] = useState(100)
+  const [playerDamageFlash, setPlayerDamageFlash] = useState(false)
 
   const startRef = useRef<number>(0)
   const actionsRef = useRef<BattleAction[]>([])
   const comboRef = useRef<{ count: number; lastHitAt: number }>({ count: 0, lastHitAt: -99999 })
   const hitIdsRef = useRef<Set<string>>(new Set())
+  const expiredIdsRef = useRef<Set<string>>(new Set())
+  const playerHpRef = useRef(100)
   const endedRef = useRef(false)
   const comboWindowMs =
     typeof session.config?.comboWindowMs === 'number' && Number.isFinite(session.config.comboWindowMs)
       ? session.config.comboWindowMs
       : 1500
 
+  // Difficulty thresholds for this chapter
+  const totalTargetCount = safeTargets.length
+  const minHitsNeeded = Math.ceil(totalTargetCount * Math.min(0.85, 0.4 + (chapter.id - 1) * 0.055))
+
   const finish = useCallback(async () => {
     if (endedRef.current) return
     endedRef.current = true
     setPhase('submitting')
     try {
-      const result = await game.finishBattle(session.sessionId, actionsRef.current)
+      const result = await game.finishBattle(
+        session.sessionId, actionsRef.current, undefined,
+        playerHpRef.current, totalTargetCount,
+      )
       setSummary(result)
       setPhase('result')
       audio.play(result.result === 'victory' ? 'victory' : 'defeat', 0.3)
@@ -96,7 +107,7 @@ export function SniperBattle({ chapter, session, onClose }: SniperBattleProps) {
       setSubmitError(true)
       setPhase('result')
     }
-  }, [session.sessionId])
+  }, [session.sessionId, totalTargetCount])
 
   // 3-2-1 count-in
   useEffect(() => {
@@ -117,16 +128,42 @@ export function SniperBattle({ chapter, session, onClose }: SniperBattleProps) {
     if (phase !== 'combat') return
     const started = performance.now()
     startRef.current = started
+    // Reset HP refs for this combat
+    playerHpRef.current = 100
+    setPlayerHp(100)
+    hitIdsRef.current = new Set()
+    expiredIdsRef.current = new Set()
+
+    // Chapter-scaled escape damage
+    const escDmg = Math.min(30, 12 + (chapter.id - 1) * 2.5)
 
     const timer = setInterval(() => {
       const nowMs = performance.now() - started
       setElapsed(nowMs)
 
-      // Update target statuses (popping → active → expired).
+      // Update target statuses and track new expirations for player damage
+      let newExpiredThisTick = false
       setTargets((prev) =>
         prev.map((tg) => {
           if (tg.status === 'hit' || tg.status === 'expired') return tg
-          if (nowMs >= tg.spawnMs + tg.lifetimeMs) return { ...tg, status: 'expired' }
+          if (nowMs >= tg.spawnMs + tg.lifetimeMs) {
+            // Target expired — deal damage to player
+            if (!expiredIdsRef.current.has(tg.id) && !hitIdsRef.current.has(tg.id)) {
+              expiredIdsRef.current.add(tg.id)
+              newExpiredThisTick = true
+              const tierBonus = tg.tier === 'armored' ? 1.3 : tg.tier === 'fast' ? 0.8 : 1.0
+              const dmg = Math.round(escDmg * tierBonus + Math.random() * 5)
+              const newHp = Math.max(0, playerHpRef.current - dmg)
+              playerHpRef.current = newHp
+              setPlayerHp(newHp)
+              setPlayerDamageFlash(true)
+              setTimeout(() => setPlayerDamageFlash(false), 200)
+              // Screen shake on damage
+              setScreenShake('light')
+              setTimeout(() => setScreenShake('none'), 300)
+            }
+            return { ...tg, status: 'expired' }
+          }
           if (nowMs >= tg.spawnMs && tg.status === 'pending') return { ...tg, status: 'popping' }
           if (nowMs >= tg.spawnMs + POP_MS && tg.status === 'popping') return { ...tg, status: 'active' }
           return tg
@@ -134,7 +171,14 @@ export function SniperBattle({ chapter, session, onClose }: SniperBattleProps) {
       )
 
       if (endedRef.current) return
-      // Check if any targets remain unhit and unexpired (using safeTargets, not batched state).
+
+      // Defeat: player HP depleted
+      if (playerHpRef.current <= 0) {
+        void finish()
+        return
+      }
+
+      // Check if any targets remain unhit and unexpired
       const liveRemain = safeTargets.some(
         (tg) => nowMs < tg.spawnMs + tg.lifetimeMs && !hitIdsRef.current.has(tg.id),
       )
@@ -142,7 +186,7 @@ export function SniperBattle({ chapter, session, onClose }: SniperBattleProps) {
     }, TICK_MS)
 
     return () => clearInterval(timer)
-  }, [phase, durationMs, finish, safeTargets])
+  }, [phase, durationMs, finish, safeTargets, chapter.id])
 
   const getPercent = (clientX: number, clientY: number, rect: DOMRect) => ({
     x: ((clientX - rect.left) / rect.width) * 100,
@@ -235,6 +279,16 @@ export function SniperBattle({ chapter, session, onClose }: SniperBattleProps) {
         {/* screen flash on shot */}
         {screenFlash && (
           <div className="pointer-events-none absolute inset-0 z-40 bg-amber-200/8 mix-blend-screen" />
+        )}
+
+        {/* Player damage flash (red screen edge) */}
+        {playerDamageFlash && (
+          <div className="pointer-events-none absolute inset-0 z-40 animate-pulse" style={{ boxShadow: 'inset 0 0 60px 20px rgba(239,68,68,0.4)' }} />
+        )}
+
+        {/* Low HP danger overlay */}
+        {phase === 'combat' && playerHp < 30 && playerHp > 0 && (
+          <div className="pointer-events-none absolute inset-0 z-[2]" style={{ boxShadow: `inset 0 0 40px 10px rgba(239,68,68,${0.15 * (1 - playerHp / 30)})` }} />
         )}
 
         {/* main arena */}
@@ -421,8 +475,20 @@ export function SniperBattle({ chapter, session, onClose }: SniperBattleProps) {
                 <span className="font-mono font-bold text-foreground">&times;{summary.bestCombo}</span>
                 <span>&#10006; {t(lang, 'enemies_eliminated')}</span>
                 <span className="font-mono font-bold text-foreground">
-                  {summary.hits}/{summary.shots}
+                  {summary.hits}/{totalTargetCount}
                 </span>
+                {!summary.result && (
+                  <>
+                    <span>&#9829; {t(lang, 'yourForce')}</span>
+                    <span className="font-mono font-bold text-ember">{playerHp > 0 ? `${Math.round(playerHp)}%` : '0%'}</span>
+                  </>
+                )}
+                {summary.result === 'defeat' && (
+                  <>
+                    <span>&#9829; {t(lang, 'yourForce')}</span>
+                    <span className="font-mono font-bold text-ember">{playerHp > 0 ? `${Math.round(playerHp)}%` : '0%'}</span>
+                  </>
+                )}
               </div>
               {summary.result === 'victory' && summary.rewards && Object.keys(summary.rewards).length > 0 && (
                 <div className="flex flex-wrap items-center justify-center gap-1.5">
@@ -483,10 +549,31 @@ export function SniperBattle({ chapter, session, onClose }: SniperBattleProps) {
                 &#9876; &times;{combo}
               </span>
               <span className="font-mono text-muted-foreground">
-                &#9673; {accuracy}% &middot; {liveTargets.length}
+                &#9673; {accuracy}% &middot; {hits}/{totalTargetCount}
               </span>
             </div>
-            <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-border/30">
+            {/* HP bars */}
+            <div className="mt-1.5 flex gap-2">
+              <div className="flex-1">
+                <div className="h-1.5 overflow-hidden rounded-full bg-border/30">
+                  <div className={`h-full transition-all duration-200 ${playerHp <= 25 ? 'bg-red-500 animate-pulse' : playerHp <= 50 ? 'bg-amber-500' : 'bg-victory'}`} style={{ width: `${playerHp}%` }} />
+                </div>
+                <span className={`text-[9px] ${playerHp <= 25 ? 'text-red-400 font-bold' : 'text-victory/80'}`}>&#9829; {Math.round(playerHp)}%</span>
+              </div>
+              <div className="flex-1">
+                <div className="h-1.5 overflow-hidden rounded-full bg-border/30">
+                  <div className="h-full bg-ember transition-all duration-200" style={{ width: `${Math.max(4, 100 - hits * (100 / totalTargetCount))}%` }} />
+                </div>
+                <span className="text-[9px] text-ember/80">{t(lang, 'enemyForce')}</span>
+              </div>
+            </div>
+            {/* Kill requirement */}
+            {hits < minHitsNeeded && (
+              <div className="mt-0.5 text-center text-[9px] font-semibold text-amber-400/70">
+                &#9888; Need {minHitsNeeded}/{totalTargetCount} eliminations to win
+              </div>
+            )}
+            <div className="mt-1 h-1 overflow-hidden rounded-full bg-border/30">
               <div
                 className="h-full bg-gradient-to-r from-primary to-amber-400 transition-all duration-200"
                 style={{ width: `${Math.min(100, (elapsed / durationMs) * 100)}%` }}

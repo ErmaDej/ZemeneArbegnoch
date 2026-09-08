@@ -80,6 +80,8 @@ interface GameContextValue extends GameState {
     sessionId: string,
     actions: BattleAction[],
     formation?: "shieldwall" | "scouts" | "rally",
+    playerHp?: number,
+    totalEnemies?: number,
   ) => Promise<BattleSummary>
   answerTrivia: (questionId: number, answerIndex: number) => Promise<{ correct: boolean; rewarded: boolean }>
   refreshState: () => Promise<void>
@@ -328,6 +330,8 @@ export function GameProvider({ children }: { children: ReactNode }) {
       sessionId: string,
       actions: BattleAction[],
       formation?: "shieldwall" | "scouts" | "rally",
+      playerHp: number = 100,
+      totalEnemies: number = 5,
     ): Promise<BattleSummary> => {
       // Try server first; fall back to local evaluation
       let summary: BattleSummary
@@ -348,6 +352,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
           // Extract stageId from sessionId pattern local_<stageId>_<ts>
           parseInt(sessionId.split("_")[1] || "0", 10),
           hits, shots, bestCombo, stateRef.current.resources,
+          playerHp, totalEnemies,
         )
         if (!local) throw new Error("Failed to submit battle")
         summary = local

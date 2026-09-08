@@ -68,11 +68,15 @@ export function BattleView({ chapter, session, onClose }: BattleViewProps) {
   const [rallyActive, setRallyActive] = useState(false)
   const [screenShake, setScreenShake] = useState<"none" | "light" | "heavy">("none")
   const shakeKeyRef = useRef(0)
+  const [enemyHpBar, setEnemyHpBar] = useState(100) // visible enemy force strength
+  const [playerDamageFlash, setPlayerDamageFlash] = useState(false)
 
   const startRef = useRef<number>(0)
   const actionsRef = useRef<BattleAction[]>([])
   const comboRef = useRef<{ count: number; lastHitAt: number }>({ count: 0, lastHitAt: -99999 })
   const hitIdsRef = useRef<Set<string>>(new Set())
+  const escapedIdsRef = useRef<Set<string>>(new Set())
+  const playerHpRef = useRef(100)
   const endedRef = useRef(false)
   const rallySeqRef = useRef(0)
   const rallyActionsRef = useRef<BattleAction[]>([])
@@ -85,13 +89,20 @@ export function BattleView({ chapter, session, onClose }: BattleViewProps) {
   const accuracy = shots > 0 ? Math.round((hits / shots) * 100) : 0
   const remaining = Math.max(0, Math.ceil((durationMs - elapsed) / 1000))
 
+  // Difficulty-scaled thresholds for this chapter
+  const totalEnemyCount = ENEMY_TARGETS.length
+  const minKillsNeeded = Math.ceil(totalEnemyCount * Math.min(0.85, 0.4 + (chapter.id - 1) * 0.055))
+
   const finish = useCallback(async () => {
     if (endedRef.current) return
     endedRef.current = true
     setPhase("submitting")
     try {
       const allActions = [...actionsRef.current, ...rallyActionsRef.current]
-      const result = await game.finishBattle(session.sessionId, allActions, formation ?? undefined)
+      const result = await game.finishBattle(
+        session.sessionId, allActions, formation ?? undefined,
+        playerHpRef.current, totalEnemyCount,
+      )
       setSummary(result)
       setPhase("result")
       audio.play(result.result === "victory" ? "victory" : "defeat", 0.3)
@@ -99,7 +110,7 @@ export function BattleView({ chapter, session, onClose }: BattleViewProps) {
       setSubmitError(true)
       setPhase("result")
     }
-  }, [session.sessionId, formation])
+  }, [session.sessionId, formation, totalEnemyCount])
 
   // 3-2-1 count-in
   useEffect(() => {
@@ -117,32 +128,78 @@ export function BattleView({ chapter, session, onClose }: BattleViewProps) {
     if (phase !== "combat") return
     const started = performance.now()
     startRef.current = started
+    // Reset HP refs for this combat
+    playerHpRef.current = 100
+    hitIdsRef.current = new Set()
+    escapedIdsRef.current = new Set()
     audio.play("whoosh", 0.15)
     // Start ambient battlefield loop
     audio.play("ambientBattle", 0.08)
     const ambientLoop = setInterval(() => audio.play("ambientBattle", 0.08), 5000)
 
+    // Chapter-scaled escape time and counterattack rate
+    const escapeMs = Math.max(3000, 6000 - (chapter.id - 1) * 430)
+    const counterDps = 0.08 + (chapter.id - 1) * 0.015
+    const escapeDmg = Math.min(30, 12 + (chapter.id - 1) * 2.5)
+
     const timer = setInterval(() => {
       const nowMs = performance.now() - started
       setElapsed(nowMs)
 
-      // Enemy HP drops based on hits
+      // ── Check for enemy escapes ──
+      ENEMY_TARGETS.forEach((et) => {
+        if (hitIdsRef.current.has(et.id) || escapedIdsRef.current.has(et.id)) return
+        // Escape time varies per enemy based on their index
+        const myEscape = escapeMs + (et.id.charCodeAt(1) % 3 - 1) * 400
+        if (nowMs >= myEscape) {
+          escapedIdsRef.current.add(et.id)
+          // Enemy escaped → deal damage to player
+          const dmg = Math.round(escapeDmg + Math.random() * 5)
+          const newHp = Math.max(0, playerHpRef.current - dmg)
+          playerHpRef.current = newHp
+          setPlayerHp(newHp)
+          setPlayerDamageFlash(true)
+          setTimeout(() => setPlayerDamageFlash(false), 200)
+          // Screen shake on player damage
+          shakeKeyRef.current += 1
+          setScreenShake("light")
+          setTimeout(() => setScreenShake("none"), 300)
+        }
+      })
+
+      // ── Enemy HP drops based on player hits ──
       const hitCount = hitIdsRef.current.size
       const baseDmg = Math.min(90, hitCount * 22)
       const rallyDmg = rallyStreak * 5
       setEnemyHp(Math.max(4, 100 - baseDmg - rallyDmg))
+      setEnemyHpBar(Math.max(4, 100 - baseDmg - rallyDmg))
 
-      // Player HP slowly decreases (enemy counterattack)
-      setPlayerHp((prev) => Math.max(4, prev - 0.35))
+      // ── Continuous enemy counterattack (proportional to alive enemies) ──
+      const aliveCount = ENEMY_TARGETS.length - hitIdsRef.current.size - escapedIdsRef.current.size
+      const counterDmg = aliveCount * counterDps
+      if (counterDmg > 0) {
+        const newHp = Math.max(0, playerHpRef.current - counterDmg)
+        playerHpRef.current = newHp
+        setPlayerHp(newHp)
+      }
 
       if (endedRef.current) return
-      if (nowMs >= durationMs || hitIdsRef.current.size >= ENEMY_TARGETS.length) {
+
+      // ── Defeat: player HP depleted ──
+      if (playerHpRef.current <= 0) {
+        void finish()
+        return
+      }
+
+      // ── Battle end: timer expired or all enemies dealt with ──
+      const allDone = hitIdsRef.current.size + escapedIdsRef.current.size >= ENEMY_TARGETS.length
+      if (nowMs >= durationMs || allDone) {
         void finish()
       }
     }, 60)
 
     return () => { clearInterval(timer); clearInterval(ambientLoop) }
-  }, [phase, durationMs, finish, rallyStreak])
+  }, [phase, durationMs, finish, rallyStreak, chapter.id])
 
   const getPercent = (clientX: number, clientY: number, rect: DOMRect) => ({
     x: ((clientX - rect.left) / rect.width) * 100,
@@ -306,6 +363,16 @@ export function BattleView({ chapter, session, onClose }: BattleViewProps) {
             </>
           )}
 
+          {/* Player damage flash (red screen edge) */}
+          {playerDamageFlash && (
+            <div className="pointer-events-none absolute inset-0 z-40 animate-pulse" style={{ boxShadow: 'inset 0 0 60px 20px rgba(239,68,68,0.4)' }} />
+          )}
+
+          {/* Low HP danger overlay */}
+          {phase === "combat" && playerHp < 30 && playerHp > 0 && (
+            <div className="pointer-events-none absolute inset-0 z-[2]" style={{ boxShadow: `inset 0 0 40px 10px rgba(239,68,68,${0.15 * (1 - playerHp / 30)})` }} />
+          )}
+
           {/* Combat: enemy targets */}
           {phase === "combat" && (
             <>
@@ -316,6 +383,7 @@ export function BattleView({ chapter, session, onClose }: BattleViewProps) {
                   x={et.x}
                   y={et.y}
                   isHit={hitEnemies.has(et.id)}
+                  isEscaped={escapedIdsRef.current.has(et.id)}
                 />
               ))}
             </>
@@ -442,8 +510,14 @@ export function BattleView({ chapter, session, onClose }: BattleViewProps) {
                 <span className="font-mono font-bold text-foreground">×{summary.bestCombo}</span>
                 <span>✕ {t(lang, "enemies_eliminated")}</span>
                 <span className="font-mono font-bold text-foreground">
-                  {summary.hits}/{summary.shots}
+                  {summary.hits}/{totalEnemyCount}
                 </span>
+                {!won && (
+                  <>
+                    <span>🫀 {t(lang, "yourForce")}</span>
+                    <span className="font-mono font-bold text-ember">{playerHp > 0 ? `${Math.round(playerHp)}%` : '0%'}</span>
+                  </>
+                )}
               </div>
               {won && summary.rewards && Object.keys(summary.rewards).length > 0 && (
                 <div className="flex flex-wrap items-center justify-center gap-1.5">
@@ -508,16 +582,22 @@ export function BattleView({ chapter, session, onClose }: BattleViewProps) {
                 ⚔ ×{combo}
               </span>
               <span className="font-mono text-muted-foreground">
-                ◎ {accuracy}% · {hits}/{ENEMY_TARGETS.length}
+                ◎ {accuracy}% · {hits}/{totalEnemyCount}
               </span>
             </div>
+            {/* Kill requirement */}
+            {hits < minKillsNeeded && (
+              <div className="mt-0.5 text-center text-[9px] font-semibold text-amber-400/70">
+                ⚠ Need {minKillsNeeded}/{totalEnemyCount} eliminations to win
+              </div>
+            )}
             {/* HP bars */}
             <div className="mt-1.5 flex gap-2">
               <div className="flex-1">
                 <div className="h-1.5 overflow-hidden rounded-full bg-border/30">
-                  <div className="h-full bg-victory transition-all duration-200" style={{ width: `${playerHp}%` }} />
+                  <div className={`h-full transition-all duration-200 ${playerHp <= 25 ? 'bg-red-500 animate-pulse' : playerHp <= 50 ? 'bg-amber-500' : 'bg-victory'}`} style={{ width: `${playerHp}%` }} />
                 </div>
-                <span className="text-[9px] text-victory/80">{t(lang, "yourForce")}</span>
+                <span className={`text-[9px] ${playerHp <= 25 ? 'text-red-400 font-bold' : 'text-victory/80'}`}>♥ {Math.round(playerHp)}%</span>
               </div>
               <div className="flex-1">
                 <div className="h-1.5 overflow-hidden rounded-full bg-border/30">
@@ -591,18 +671,34 @@ function EnemySoldierTarget({
   x,
   y,
   isHit,
+  isEscaped,
 }: {
   id: string
   x: number
   y: number
   isHit: boolean
+  isEscaped: boolean
 }) {
   return (
     <div
       className="absolute z-10"
       style={{ left: `${x}%`, top: `${y}%`, transform: "translate(-50%, -50%)" }}
     >
-      {isHit ? (
+      {isEscaped ? (
+        <motion.div
+          initial={{ scale: 1, opacity: 0.8, y: 0 }}
+          animate={{ scale: 0.6, opacity: 0, y: -30 }}
+          transition={{ duration: 0.5 }}
+          className="flex flex-col items-center"
+        >
+          <span className="text-[10px] font-bold text-red-400 drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)]">ESCAPED!</span>
+          <svg width="48" height="48" viewBox="0 0 48 48" className="opacity-50">
+            <circle cx="24" cy="24" r="14" fill="none" stroke="rgba(239,68,68,0.6)" strokeWidth="2" strokeDasharray="4 3" />
+            <line x1="10" y1="10" x2="38" y2="38" stroke="rgba(239,68,68,0.5)" strokeWidth="2" />
+            <line x1="38" y1="10" x2="10" y2="38" stroke="rgba(239,68,68,0.5)" strokeWidth="2" />
+          </svg>
+        </motion.div>
+      ) : isHit ? (
         <motion.div
           initial={{ scale: 1.3, opacity: 1 }}
           animate={{ scale: 0.1, opacity: 0, rotate: 45 }}
